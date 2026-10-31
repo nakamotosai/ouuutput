@@ -1979,6 +1979,19 @@ fn worker(
     // 差额算术拿新句的字当自己的尾巴改来改去 —— 真机上就是「一句话被贴上两遍」。
     // 所以:新句一出字就当场归零并宣告作废,那条迟到的定稿整条丢掉。
     let mut defer_expired = false;
+    // 上一句的定稿**还没回收干净**:按下热键时它还挂在路上(`defer_reset`),
+    // 或者它已经到了一条但我们要的那条 `finish` 回执还没来。
+    //
+    // 为什么要单独一个记号(2026-11-01 定位到的第二条路径):上一句**不止一条**定稿会迟到 ——
+    //   · `endpoint`:侧车自己按静音判出来的(`tools/asr_sidecar.py` 的 VAD 那条路),
+    //   · `finish`:答复我们收尾命令的那条(**离线整段重解**那版能晚 2 秒)。
+    // 两条会**一前一后**都到。原来只挡 `finish`,于是 `endpoint` 那条照进 `handle_msg`:
+    // 它带着**上一句**的文本去走 `finalize` 的差额算术(`inject.rs` 的 common_prefix + 退格 + 补尾巴),
+    // 而账此刻是**新句**的 —— 屏幕上就是「回退再重打」,严重时上一句被贴两遍、新句整句丢掉。
+    // 侧车是单线程顺序回话的(见 `tools/asr_sidecar.py` 主循环,没有旁路线程):
+    // 在它答复我们那次 `finish` 之前,它**不可能**已经给出下一句的任何东西 ——
+    // 所以这个记号还在的时候,收到的任何定稿都属于上一句。
+    let mut prev_final_open = false;
     let mut buf: Vec<Msg> = Vec::new();
     let t0 = Instant::now();
     let mut utterances = 0usize;
@@ -2207,9 +2220,14 @@ fn worker(
                         // (但**只要新一句出了字**,这笔账就作废 —— 见 `defer_expired`。)
                         defer_reset = true;
                         defer_expired = false;
+                        // 上一句的定稿(不止一条:endpoint + finish)还没回收干净。
+                        prev_final_open = true;
                     } else {
                         reset_writer(&mut wr);
                         defer_expired = false;
+                        // 上一句早就收口了:记号也一并撤掉(免得侧车漏答 `finish` 时
+                        // 这个记号一直挂着,把**这一句**的定稿也挡掉)。
+                        prev_final_open = false;
                     }
                     // 前置空格：**每句开始时问一次**光标左边有没有字。
                     // ⚠️ 必须在 reset **之后**设 —— reset 会清掉前缀（前缀属于"上一句"的决策），
@@ -2619,14 +2637,35 @@ fn worker(
             // 之后真 final 反而被当迟到帧丢掉 —— 用户的"最后一个字"就真没了。
             let is_final_finish = matches!(&m, Msg::Final { reason, .. } if reason == "finish");
             let is_final_endpoint = matches!(&m, Msg::Final { reason, .. } if reason == "endpoint");
-            // 上一句那条迟到的定稿:它的账已经作废(新句的字早上屏了)——
-            // **连 handle_msg 都不进**,否则差额算术会拿它去改新句已经打出去的字。
-            if is_final_finish && defer_expired {
-                defer_expired = false;
-                if let Some(l) = o.log.as_ref() {
-                    l.line("! 丢弃上一句迟到的定稿(它的字已上屏,不再回头改;当前句状态不受影响)");
+            // 上一句的定稿还挂着(`prev_final_open`):这段时间收到的定稿都属于**上一句**。
+            //
+            // 分两种情形(见 `prev_final_open` 那段的注释):
+            //   · **新句还没出字**(`!defer_expired`):账还是完整的上句文本,让那条
+            //     `finish` 回执走正常路径只做**差额补打** —— 它只会把上一句的尾巴修得更准
+            //     (这就是 `defer_reset` 当初的设计目的),补完再由下面那条分支归零。
+            //   · **新句已经出字**(`defer_expired`):账已经作废,一并丢掉 —— 放它进来
+            //     `finalize` 就会拿新句的字当上一句的尾巴改,屏幕上先回退成上一句、
+            //     再把新句重打一遍。
+            // ⚠️ `endpoint` 这一类**无论哪种情形**都丢:它只是上一句"自己判到端点",
+            // 而上一句的收尾我们早就发了 `finish`;放它进来不但会改屏幕,它自己那条
+            // `reason == "endpoint"` 还会顺手把账归零(`handle_msg` 里那一步),
+            // 于是紧随其后的 `finish` 回执就变成"往空白账上整句重打" ——
+            // 实测后果是「上一句被贴两遍、新句一个字都没上屏」。
+            if prev_final_open && (is_final_finish || is_final_endpoint) {
+                // 只有我们**要**的那条回执能让记号退休 —— 它才是"上一句到此为止"的凭据。
+                // 一丢就撤是错的:两条一起迟到时,第二条会从"作废"里漏出去(实测踩到)。
+                if is_final_finish {
+                    prev_final_open = false;
                 }
-                continue;
+                if !(is_final_finish && !defer_expired) {
+                    if let Some(l) = o.log.as_ref() {
+                        l.line(&format!(
+                            "! 丢弃上一句迟到的定稿({}):它的字已上屏,不再回头改;当前句状态不受影响",
+                            if is_final_finish { "finish" } else { "endpoint" }
+                        ));
+                    }
+                    continue;
+                }
             }
             let ui = Ui {
                 ov: o.overlay.as_ref(),

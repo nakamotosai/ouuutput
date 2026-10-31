@@ -33,13 +33,19 @@ use sainput_core::{
 const DEFAULT_MODEL: &str =
     "sherpa-onnx-x-asr-160ms-streaming-zipformer-transducer-zh-en-int8-2026-06-05";
 const DEFAULT_PUNCT: &str = "sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8";
-/// 二遍重打(高精度模式,`twopass`)用的模型:x-asr-480ms。
+/// 二遍重打(高精度模式,`twopass`)用的模型:SenseVoice 离线版。
 ///
-/// 为什么是 480ms 档:整段解码时它明显更准(体检报告 §6.4 实测:160ms 把
-/// "THE DAY AFTER TOMORROW" 听成 "TODAY AFTER TOMORROW",480ms 那版是对的),
-/// 代价是整句重解多花约 1 秒 —— 而且只花在**松键之后**,不碰 960ms 首字。
+/// 为什么换成它(2026-10-31 用**用户真人语料**实测,9 句逐句对比):
+///   * 明显更准:5 句更对 / 1 句平 / 0 句更差 —— 同音错改对了("站位"→"占位"、
+///     "些提示词"→"写提示词"),句尾不再被截,而且自带标点;
+///   * **更快**:RTF 0.06(旧二遍 480ms 档约 0.13、现在跑的流式 160ms 档 0.27),
+///     定稿只多花"每 1 秒语音 60~70ms"(4.4s 句 ≈ 300ms);
+///   * 数字/验证码全对(ITN 开着给 `903721`,旧的流式会给"九零三七二",少一位);
+///   * **同一套 sherpa_onnx 运行时、纯 CPU、不引 torch/GPU** —— 装机成本不变。
+/// 对比过但没选:faster-whisper large-v3-turbo(真人语音上最差,且最重,2GB 显存)、
+/// funasr SenseVoiceSmall(同一套权重换 GPU 路径,精度没涨白背 1GB 显存)。
 const DEFAULT_TWOPASS_MODEL: &str =
-    "sherpa-onnx-x-asr-480ms-streaming-zipformer-transducer-zh-en-int8-2026-06-05";
+    "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17";
 const CONF_NAME: &str = "sainput.conf";
 const HOTWORDS_NAME: &str = "hotwords.txt";
 
@@ -86,8 +92,9 @@ fn usage() {
          --tail-pad-ms <N>      收工时一次性补灌多少毫秒底噪（模型的右上下文），默认 480ms\n  \
          --tail-rms <F>         静音判定阈值（帧 RMS），默认 0.012\n  \
          --feed-release-at <S>  测试用:--feed 喂到第 S 秒自动松键(吞字回归)\n  \
-         --twopass              二遍重打:松键后用更准的 480ms 档整句重解一遍\n  \
-         --twopass-model-dir <DIR>  二遍重打用的模型目录(默认 models 下的 480ms 档)\n  \
+         --twopass              二遍重打(默认**开**):松键后用更准的模型整句重解一遍\n  \
+         --no-twopass           关掉二遍重打(只用流式结果,定稿更快但更容易听错同音字)\n  \
+         --twopass-model-dir <DIR>  二遍重打用的模型目录(默认 models 下的 SenseVoice 离线档)\n  \
          --focus-guard          打开焦点守卫(默认**关**:按住说话途中切了窗口就中止本句注入。\n  \
                                 默认关是用户定的 —— 他说话时就会切窗口,开着等于丢整句)\n  \
          --python <EXE>         Python 解释器(默认按 PATH 里的绝对路径探测,\n  \
@@ -560,17 +567,22 @@ fn cfg(a: &Args) -> Result<Cfg> {
     };
 
     // 二遍重打:开了就必须能拿到模型目录,否则直接说清楚(别等 sidecar 起来才报)。
-    let twopass = a.b("twopass", "--twopass", "--no-twopass", false);
+    // 二遍重打**默认开**(2026-10-31 实测:换成 SenseVoice 后是"更准 + 更快",
+    // 没有理由让用户自己去开)。缺模型时**降级**成单遍,不是启动失败 ——
+    // 二遍只是加分项,拿不到更好的结果不等于用不了这个输入法。
+    let mut twopass = a.b("twopass", "--twopass", "--no-twopass", true);
     let twopass_model_dir = resolve_path(
         &root,
         &a.s("twopass_model_dir", "--twopass-model-dir")
             .unwrap_or_else(|| format!("models/{DEFAULT_TWOPASS_MODEL}")),
     );
     if twopass && !twopass_model_dir.is_dir() {
-        anyhow::bail!(
-            "twopass 开着,但找不到二遍重打模型目录: {}\n提示:放好 480ms 档模型,或用 twopass_model_dir / --twopass-model-dir 指定",
+        eprintln!(
+            "[sainput] ⚠ 找不到二遍重打模型目录,本次降级为单遍(更准的那一遍不跑):{}\n\
+             [sainput]    想要它:powershell -File scripts\\fetch_models.ps1 -Variant sensevoice -NoPunct",
             twopass_model_dir.display()
         );
+        twopass = false;
     }
 
     // 上下文偏置总开关：run 用它决定要不要写偏置文件，sidecar 用它决定要不要挂 per-stream 热词。
@@ -2877,8 +2889,22 @@ fn cmd_run(_args: &[String], a: &Args) -> Result<()> {
     }
     let toggle = a.b("toggle", "--toggle", "--hold", false);
     let lazy_mic = a.b("lazy_mic", "--lazy-mic", "--warm-mic", false);
-    // 尾巴参数：实测默认值见 README「尾巴」一节（都是拿真机麦克风量出来的）
-    let tail = tail_of(a)?;
+    // 尾巴参数:实测默认值见 README「尾巴」一节(都是拿真机麦克风量出来的)
+    let mut tail = tail_of(a)?;
+    if c.twopass {
+        // 二遍模式下,尾巴只剩**一个**职责:别把最后一个音剪掉(用户原话:"我松手就是说完了")。
+        // 原来那套等待(最多 1200ms + 补 480ms 底噪 + 等流式把最后几个字吐完)全都只有一个目的:
+        // 让**流式模型**补上它的"右上下文"。而二遍模式下流式的定稿会被整段重解**覆盖**掉 ✗,
+        // 等它等于白等 —— 实测(2026-10-31):松键后 1.85s 才出字,其中大半是这段空转。
+        // 收紧之后:安静 250ms 即收工、最多 400ms、不补底噪(离线模型整段解码不需要右上下文)。
+        // ⚠️ 代价说清楚:万一二遍模型挂了要沿用流式结果,那一版会**比原来更容易掉尾字** ——
+        //    这是"宁可偶尔掉尾字,也不要每次都白等 1 秒"的取舍;要退回老行为:--no-twopass。
+        tail.max_ms = tail.max_ms.min(400);
+        // pad 只在用户没显式设过的时候归零(设过的说明他知道自己在干什么)
+        if a.s("tail_pad_ms", "--tail-pad-ms").is_none() {
+            tail.pad_ms = 0;
+        }
+    }
     if tail.rms > 0.0 {
         println!(
             "[sainput] 尾巴: 松键后最少收 {}ms（上限 {}ms / 安静 {}ms 即收工）+ 补 {}ms 底噪（静音阈值 RMS {:.3}）",

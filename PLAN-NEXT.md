@@ -150,6 +150,31 @@ SAINPUT_FINAL_WAIT_MS=400,脚本在 2500ms 后才给真 final:
 **还没装到在跑的那个二进制上**:`target/release/sainput.exe` 被正在运行的实例锁着,
 换不了。用户下次退出后跑 `powershell -File tools/swap_engine.ps1` 即可(它会拒绝在有进程时动手)。
 
+### ✅ 已集成并端到端验过(2026-10-31 晚):二遍重打换成离线 SenseVoice,**默认开**
+
+改动(都很小,因为"二遍重打"的管道早就有了:侧车 `--twopass` + 整句 PCM 缓存 + 失败降级):
+
+1. `tools/asr_sidecar.py`:二遍模型支持**离线**档 —— 目录里只有 `model*.onnx`(无 encoder/decoder/joiner)
+   就按 SenseVoice 加载(`OfflineRecognizer.from_sense_voice`,`use_itn=True`,`language=auto`),
+   结果剥掉 `<|zh|><|NEUTRAL|>` 这类标签;离线结果**不再**过中文标点/ITN(它自带,再过一遍会改坏);
+2. 新增**防凭空造字**:流式那一遍一个字都没有 = 这句本来就是静音,二遍结果一概不采纳
+   (实测离线模型在近静音段会写 `The.` / `Okay.`,流式同段给空);
+3. `crates/sainput-cli/src/main.rs`:`DEFAULT_TWOPASS_MODEL` → SenseVoice;`twopass` **默认开**
+   (缺模型时降级成单遍并提示,不再直接启动失败);`--no-twopass` 可退回;
+4. **二遍模式下尾巴自动收紧**(最多 400ms、不补 480ms 底噪):那段等待只为让*流式*模型吐右上下文,
+   而它的定稿会被二遍覆盖 —— 不收紧就是白等(实测松键后 1.85s 才出字,其中大半是这段空转)。
+
+端到端验收(真引擎 + 真侧车 + 真人录音 `tmp/code.wav`,诊断热键按住 3 秒):
+
+| 跑法 | 定稿 | 松键→出字 |
+|---|---|---|
+| `--no-twopass`(旧行为) | `我的验证码是903721`(raw `九零三七二一`) | 尾巴 226ms |
+| 默认(二遍=SenseVoice) | `我的验证码是903721`(raw 里已含 ITN) | 尾巴 227ms + 识别 ~230ms ≈ **0.45s** |
+
+**⚠️ 更正我自己先前的结论**:我一度说"现用流式在验证码上会少最后一位" —— 那是**喂文件测试切尾**
+造成的假象(没等尾音就取结果),不是模型缺陷;完整音频上两条路都拿到六位 ✗。真正确凿的差异是
+**真人语料上的同音错**(站位/占位、些/写提示词)与自带标点。已同步更正到 README。
+
 ### 🔎 实测结论(2026-10-31 晚,**用用户真人语料**):SenseVoice 离线版明显更准且快 5 倍
 
 候选:`sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17`(即 SenseVoiceSmall 的 ONNX 版,中英日韩粤,

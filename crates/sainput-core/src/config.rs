@@ -54,10 +54,6 @@ impl Settings {
         })
     }
 
-    pub fn us(&self, key: &str) -> Option<usize> {
-        self.s(key).and_then(|v| v.trim().parse::<usize>().ok())
-    }
-
     pub fn len(&self) -> usize {
         self.map.len()
     }

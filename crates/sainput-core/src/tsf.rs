@@ -15,7 +15,6 @@
 
 use crate::pebrel::Composer;
 use anyhow::{bail, Context, Result};
-use std::ffi::c_void;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::fs::File;
 use std::io::{Read, Write};
@@ -34,7 +33,9 @@ extern "system" {
         name: *const u16,
         access: u32,
         share: u32,
-        security: *mut c_void,
+        // 与 `tray.rs` 里同名声明保持一致(不透明的安全属性指针,两边都传 null):
+        // 同一符号被两处 extern 声明成不同类型会吃 `clashing_extern_declarations` 告警。
+        sec: *const u8,
         disposition: u32,
         flags: u32,
         template: isize,
@@ -144,7 +145,7 @@ impl TsfComposer {
                     w.as_ptr(),
                     GENERIC_READ | GENERIC_WRITE,
                     0,
-                    std::ptr::null_mut(),
+                    std::ptr::null(),
                     OPEN_EXISTING,
                     0,
                     0,

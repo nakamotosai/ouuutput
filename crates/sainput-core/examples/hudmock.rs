@@ -47,7 +47,6 @@ extern "system" {
     fn DispatchMessageW(m: *const Msg) -> isize;
     fn BeginPaint(h: isize, ps: *mut PaintStruct) -> isize;
     fn EndPaint(h: isize, ps: *const PaintStruct) -> i32;
-    fn GetClientRect(h: isize, r: *mut Rect) -> i32;
     fn SetLayeredWindowAttributes(h: isize, k: u32, a: u8, f: u32) -> i32;
     fn SetTimer(h: isize, i: usize, ms: u32, p: isize) -> usize;
     fn PostQuitMessage(c: i32);
@@ -63,16 +62,10 @@ extern "system" {
     fn SelectObject(hdc: isize, o: isize) -> isize;
     fn DeleteObject(o: isize) -> i32;
     fn SetTextColor(hdc: isize, c: u32) -> u32;
-    fn SetBkColor(hdc: isize, c: u32) -> u32;
     fn SetBkMode(hdc: isize, m: i32) -> i32;
-    fn TextOutW(hdc: isize, x: i32, y: i32, s: *const u16, n: i32) -> i32;
     fn ExtTextOutW(hdc: isize, x: i32, y: i32, o: u32, rc: *const Rect,
         s: *const u16, n: u32, dx: *const i32) -> i32;
-    fn GetTextExtentPoint32W(hdc: isize, s: *const u16, n: i32, sz: *mut Size) -> i32;
 }
-
-#[repr(C)]
-struct Size { cx: i32, cy: i32 }
 
 fn wide(s: &str) -> Vec<u16> {
     let mut v: Vec<u16> = s.encode_utf16().collect();
@@ -84,7 +77,6 @@ fn wide(s: &str) -> Vec<u16> {
 const INK: u32 = 0x00F0_EEE8;       // 主文字
 const DIM: u32 = 0x0088_8C94;       // 次要文字
 const ACCENT: u32 = 0x00FF_8A3C;    // 橙（录音中）
-const ACCENT2: u32 = 0x0050_D0FF;   // 青（识别中）
 const CARD: u32 = 0x001C_1A18;      // 卡片底
 
 struct Ctx { hdc: isize }

@@ -49,11 +49,6 @@ pub enum Trigger {
 }
 
 impl Trigger {
-    /// 能不能被"按住"—— 鼠标左右键不提供，因为按住左键说话会毁掉正常点击。
-    pub fn is_holdable(self) -> bool {
-        matches!(self, Trigger::Key(_) | Trigger::MouseX1 | Trigger::MouseX2)
-    }
-
     /// 配置文件 / 命令行里的写法。
     pub fn as_conf(self) -> String {
         match self {
@@ -72,11 +67,6 @@ impl Trigger {
             Trigger::MouseX2 => "鼠标侧键X2".into(),
             Trigger::MouseMiddle => "鼠标中键".into(),
         }
-    }
-
-    /// 托盘菜单里那一行的文字。
-    pub fn menu_label(self) -> String {
-        format!("热键：{}", self.label())
     }
 }
 
@@ -852,17 +842,6 @@ fn heal_stuck_trigger() {
 /// 什么也不用卸,直接注入 —— 这也是 TROUBLESHOOTING §5.1 推荐的处置顺序。
 pub fn panic_release() {
     without_hooks(send_all_keyups);
-}
-
-/// 阻塞跑消息循环（低级钩子必须靠它才能收到回调）。
-pub fn run_message_loop() {
-    unsafe {
-        let mut msg = std::mem::zeroed::<Msg>();
-        while GetMessageW(&mut msg, 0, 0, 0) > 0 {
-            TranslateMessage(&msg);
-            DispatchMessageW(&msg);
-        }
-    }
 }
 
 #[link(name = "user32")]

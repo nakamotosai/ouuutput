@@ -398,7 +398,6 @@ extern "system" {
         disposition: u32, flags: u32, template: isize,
     ) -> isize;
     fn GetConsoleWindow() -> isize;
-    fn SetConsoleTitleW(title: *const u16) -> i32;
     fn ShowWindow(hwnd: isize, cmd: i32) -> i32;
 }
 
@@ -621,11 +620,6 @@ pub fn request_exit_of(pid: u32) -> bool {
     ctx.sent
 }
 
-/// 用户是否通过托盘点了退出。
-pub fn exit_requested() -> bool {
-    EXIT_REQUESTED.load(Ordering::Relaxed)
-}
-
 static HWND: std::sync::OnceLock<isize> = std::sync::OnceLock::new();
 
 fn new_nid(hwnd: isize) -> NotifyIconDataW {
@@ -779,7 +773,7 @@ unsafe fn show_menu(hwnd: isize) {
     let lead = wide("前面自动加空格");
     let trail = wide("后面自动加空格");
     // 悬浮显示方式：三选一互斥（用户要求"一次最多只能显示一个或者完全不显示"）
-    let MODES: [&str; 4] = [
+    let modes: [&str; 4] = [
         "不显示",
         "细条（只显示文字）",
         "悬浮球（录音波形）",
@@ -787,7 +781,7 @@ unsafe fn show_menu(hwnd: isize) {
     ];
     let ovl_title = wide(&format!(
         "悬浮显示（当前：{}）",
-        MODES.get(f.overlay_mode).copied().unwrap_or("不显示")
+        modes.get(f.overlay_mode).copied().unwrap_or("不显示")
     ));
     let ovl_menu = CreatePopupMenu();
     let fixc = wide("英文默认小写");
@@ -826,20 +820,20 @@ unsafe fn show_menu(hwnd: isize) {
     // 句尾空格紧跟其后:一个管前面、一个管后面,放一起最好找
     AppendMenuW(menu, MF_STRING | tick(f.trailing_space), ID_TRAILING_SPACE, trail.as_ptr());
     if ovl_menu != 0 {
-        for (i, name) in MODES.iter().enumerate() {
+        for (i, name) in modes.iter().enumerate() {
             let l = wide(name);
             let checked = if i == f.overlay_mode { MF_CHECKED } else { 0 };
             AppendMenuW(ovl_menu, MF_STRING | checked, ID_OVERLAY_BASE + i, l.as_ptr());
         }
         // 边缘光颜色：只在选了边缘光时才有意义，但一直显示（切过去就能立刻改）
-        let TINTS: [&str; 5] = ["白光", "彩虹光", "暖橙光", "青蓝光", "极光（青紫）"];
+        let tints: [&str; 5] = ["白光", "彩虹光", "暖橙光", "青蓝光", "极光（青紫）"];
         let tint_title = wide(&format!(
             "边缘光颜色（当前：{}）",
-            TINTS.get(f.edge_tint).copied().unwrap_or("白光")
+            tints.get(f.edge_tint).copied().unwrap_or("白光")
         ));
         let tint_menu = CreatePopupMenu();
         if tint_menu != 0 {
-            for (i, name) in TINTS.iter().enumerate() {
+            for (i, name) in tints.iter().enumerate() {
                 let l = wide(name);
                 let checked = if i == f.edge_tint { MF_CHECKED } else { 0 };
                 AppendMenuW(tint_menu, MF_STRING | checked, ID_EDGE_TINT_BASE + i, l.as_ptr());

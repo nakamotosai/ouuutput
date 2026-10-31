@@ -43,7 +43,6 @@ const WS_EX_NOACTIVATE: u32 = 0x0800_0000;
 /// 鼠标穿透:窗口铺满整屏后**绝不能挡住点击**(配合 per-pixel alpha 全透明,用户看不到它)。
 const WS_EX_TRANSPARENT: u32 = 0x0000_0020;
 
-const SW_HIDE: i32 = 0;
 const SW_SHOWNOACTIVATE: i32 = 4;
 const HWND_TOPMOST: isize = -1;
 const SWP_NOACTIVATE: u32 = 0x0010;
@@ -123,17 +122,8 @@ static EDGE_LAST_TICK: std::sync::OnceLock<Mutex<std::time::Instant>> = std::syn
 static EDGE_LAST_PAINT: std::sync::OnceLock<Mutex<std::time::Instant>> = std::sync::OnceLock::new();
 
 // ---- 设计规格 ----
-const PAD_X: i32 = 24;          // 左右内边距（放大后按比例加宽）
-const PAD_TOP: i32 = 18;
-const PAD_BOTTOM: i32 = 20;
-const RADIUS: i32 = 14;         // 六号方案：小圆角矩形（不是胶囊）
-const SHADOW_DY: i32 = 3;
-const SHADOW_BLUR: f32 = 6.0;
-const SHADOW_ALPHA: f32 = 0.28;
-/// 最小宽度按屏幕宽度的比例算（见 `anchor_pos`）—— 用户要的是"屏幕中下方的一条"，
-/// 固定像素在不同分辨率上会时大时小。
-const MIN_W: i32 = 520;
-const MAX_W: i32 = 900;
+// (早先那块"圆角面板"图纸的内边距/圆角/阴影/最小宽度常量已随该方案废弃删除:
+//  现在的形态是细条 / 悬浮球 / 边缘光,尺寸一律按屏幕比例算,见 `anchor_pos`。)
 /// 距屏幕底边（任务栏上方）留多少像素。
 const BOTTOM_GAP: i32 = 56;
 
@@ -255,11 +245,9 @@ const EDGE_FLOW_MS: u64 = 8000;
 // ⚠️ 格式是 **0xAARRGGBB**（和 `argb()` 一致）。
 // 早先抄常量时漏了 alpha 通道（写成 0x00RRGGBB），结果整个 HUD 全透明、
 // 屏幕上只剩一层淡淡的阴影 —— 排查了半天才发现是 alpha=0。
-const BG: u32 = 0xF2_241F1A;        // 暖棕黑 rgb(36,31,26) @ 95%
-const BORDER: u32 = 0x1A_FFE0C0;    // 暖白描边 rgb(255,224,192) @ 10%
-const INK: u32 = 0xF0_F5F0E8;       // 奶油白 rgb(245,240,232) @ 94%
+/// 琥珀(边缘光 / 悬浮球用)
 const ACCENT: u32 = 0xFF_FF9A4D;    // 琥珀 rgb(255,154,77)
-const ACCENT2: u32 = 0xFF_50D0FF;   // 青 rgb(80,208,255)
+// (面板方案自己的底色/描边/文字色 `BG`/`BORDER`/`INK` 与青色 `ACCENT2` 已随该方案删除。)
 
 // 细条要**半透明** —— 用户明确要求「做成半透明的」，而且要能透出下面的字。
 // 88/255 ≈ 35% 不透明：足够压住背景保证可读，又能看见底下的内容。
@@ -408,12 +396,9 @@ extern "system" {
     fn DestroyWindow(h: isize) -> i32;
     fn DefWindowProcW(h: isize, m: u32, w: usize, l: isize) -> isize;
     fn ShowWindow(h: isize, cmd: i32) -> i32;
-    fn IsWindowVisible(h: isize) -> i32;
     fn SetWindowPos(h: isize, after: isize, x: i32, y: i32, cx: i32, cy: i32, flags: u32) -> i32;
     fn SetTimer(h: isize, id: usize, ms: u32, proc: isize) -> usize;
-    fn KillTimer(h: isize, id: usize) -> i32;
     fn PostQuitMessage(code: i32);
-    fn GetClientRect(h: isize, rc: *mut Rect) -> i32;
     fn GetForegroundWindow() -> isize;
     fn GetWindowThreadProcessId(h: isize, pid: *mut u32) -> u32;
     fn GetGUIThreadInfo(tid: u32, info: *mut GuiThreadInfo) -> i32;
@@ -423,18 +408,15 @@ extern "system" {
     fn SystemParametersInfoW(action: u32, param: u32, pv: *mut core::ffi::c_void, winini: u32) -> i32;
     fn SetProcessDPIAware() -> i32;
     fn SetProcessDpiAwarenessContext(ctx: isize) -> i32;
-    fn GetDpiForWindow(h: isize) -> u32;
     fn GetModuleHandleW(name: *const u16) -> isize;
     fn GetMessageW(m: *mut Msg, h: isize, a: u32, b: u32) -> i32;
     fn TranslateMessage(m: *const Msg) -> i32;
     fn DispatchMessageW(m: *const Msg) -> isize;
-    fn InvalidateRect(h: isize, rc: *const Rect, erase: i32) -> i32;
     fn GetDC(h: isize) -> isize;
     fn GetDeviceCaps(hdc: isize, index: i32) -> i32;
     fn ReleaseDC(h: isize, hdc: isize) -> i32;
     fn BeginPaint(h: isize, ps: *mut PaintStruct) -> isize;
     fn EndPaint(h: isize, ps: *const PaintStruct) -> i32;
-    fn GetWindowRect(h: isize, rc: *mut Rect) -> i32;
     fn UpdateLayeredWindow(
         hwnd: isize,
         hdc_dst: isize,
@@ -1135,10 +1117,13 @@ fn anchor_pos(w: i32, h: i32) -> (i32, i32) {
 
 /// 贴着插入符定位；拿不到就贴鼠标。
 ///
-/// ⚠️ 现在**正常路径不用它**（用户要求固定在屏幕中下方）。
-/// 保留是因为 `overlay-demo --at` 之外还有调试价值，且以后若要做"跟随模式"可直接复用。
+/// ⚠️ **没有任何调用者**(全仓 grep `caret_pos` 只有这一处定义)。
+/// 为什么还留着:定位那套算术(前台窗口 → 线程 → 插入符矩形 → 客户区转屏幕,
+/// 退化成鼠标位置)是"跟随模式"的完整参考实现,删了以后要重推一遍;
+/// 它也不参与任何编译产物之外的路径,`#[allow(dead_code)]` 明确标着"有意保留"。
+/// 现在的正常路径是 **屏幕中下方固定位置**(见 `anchor_pos`)。
 #[allow(dead_code)]
-unsafe fn caret_pos(hwnd: isize, w: i32, h: i32) -> (i32, i32) {
+unsafe fn caret_pos(hwnd: isize, _w: i32, _h: i32) -> (i32, i32) {
     let mut anchor: Option<Point> = None;
     let fg = GetForegroundWindow();
     if fg != 0 {
@@ -1402,7 +1387,9 @@ unsafe fn clear_rect(bits: *mut u8, cw: i32, ch: i32, r: &Rect) {
 
 /// D2D 渲染目标,外加「当前绑到哪儿」——用来免得每帧都 BindDC。
 struct RtCache {
-    factory: windows::Win32::Graphics::Direct2D::ID2D1Factory,
+    /// 工厂本身不用来画,只**持住**它:render target 是它的产物,留一份引用最稳
+    /// (所以编译器会说它"never read" —— 那是有意的,不是漏删)。
+    _factory: windows::Win32::Graphics::Direct2D::ID2D1Factory,
     rt: windows::Win32::Graphics::Direct2D::ID2D1DCRenderTarget,
     target: windows::Win32::Graphics::Direct2D::ID2D1RenderTarget,
     /// 当前绑定:(hdc, left, top, right, bottom)。None = 还没绑/需要重绑。
@@ -1625,7 +1612,7 @@ fn with_target(
                 return;
             }
         };
-        *slot = Some(RtCache { factory, rt, target, bound: Some(want) });
+        *slot = Some(RtCache { _factory: factory, rt, target, bound: Some(want) });
         // 新目标 = 旧目标上的画刷作废(画刷绑在目标上,拿旧的去画会画不出来或直接报错)。
         // 只在**新建**这一支丢;单纯重新 BindDC 不动画刷对象。
         invalidate_dwrite_brush();
@@ -2058,7 +2045,6 @@ fn d2d_paint_edge(hdc: isize, canvas: &Rect, clear: &[Rect], rc: &Rect, offset: 
         let target = t.target;
         let w = (rc.right - rc.left) as f32;
         let h = (rc.bottom - rc.top) as f32;
-        let spread = px(edge_spread()) as f32;
 
         // 呼吸:0.86~1.0 之间缓慢起伏。相位都在 0..1,见 edge_clock。
         let (breath_ph, flow_ph) = edge_clock();
@@ -2118,9 +2104,9 @@ fn d2d_paint_edge(hdc: isize, canvas: &Rect, clear: &[Rect], rc: &Rect, offset: 
                     // (每边每帧一个),这正是「每说一句长一段 32 MiB 设备侧资源」的两个来源之一
                     // (另一个是每帧新建渐变刷,见 EdgeBrushes 的注释)。
                     // 这里用 from_raw 借一下:不加引用,ManuallyDrop 也不会去释放它。
-                    opacityBrush: std::mem::ManuallyDrop::new(Some(unsafe {
+                    opacityBrush: std::mem::ManuallyDrop::new(Some(
                         windows::Win32::Graphics::Direct2D::ID2D1Brush::from_raw(b.fade[i].as_raw())
-                    })),
+                    )),
                     layerOptions: windows::Win32::Graphics::Direct2D::D2D1_LAYER_OPTIONS_NONE,
                 };
                 // 图层对象复用:每帧只 Push/Pop,不再 CreateLayer
@@ -2367,11 +2353,12 @@ mod tests {
     ///
     /// 判据用**计数**而不是计时:计时在这台机器上会被调度噪声淹没(CI 上更飘),
     /// 而"重建了几次"是确定的整数 —— 一旦退化回"每帧重建",这条立刻红。
-    #[test]
     // T6.4 的判据**不做成单测**:这个文件里能建的只是内存 DC + D2D 目标,而 DWrite 的
     // **文字**绘制在那条路上会挂住(实测:测试名打印出来之后 240s 超时)。生产里画字是在
     // 有窗口、有消息循环的那条线程上 —— 判据因此改成 `examples/dwritecache.rs` 探针:
     // 真窗口里推 N 帧,再读 `dwrite_create_counts()`。
+    // (这里原来挂着一个 `#[test]`,函数体已被上面那段结论取代 → 它成了重复属性,
+    //  会让下面那个用例被注册两次(实测:同一行 test 结果打印两遍)。已删。)
 
     /// 回归：D2D 目标失效后必须丢掉缓存，并在下一帧重建。
     ///

@@ -878,19 +878,6 @@ fn ov_get() -> Option<Overlay> {
     OV_SLOT.lock().ok().and_then(|g| g.clone())
 }
 
-/// 统一入口：只有开关打开时才碰悬浮条。
-/// 为什么统一：以前 `if let Some(ov) = &o.overlay` 散落在 8 处，
-/// 加一个运行时开关就得改 8 遍 —— 漏一处就会出现「关了还在闪」。
-fn ov_show(_o: &Option<Overlay>, _status: &str, text: &str) {
-    if !overlay_enabled() {
-        return;
-    }
-    if let Some(ov) = ov_get() {
-        // 细条**只显示正文**，状态行已撤（状态交给悬浮球）。
-        ov.show_bar(text);
-    }
-}
-
 /// 进入录音状态：按当前模式显示悬浮球或屏幕边缘光。
 fn ov_record_start(_o: &Option<Overlay>) {
     if !overlay_enabled() {
@@ -934,18 +921,10 @@ fn ov_hide(_o: &Option<Overlay>) {
     }
 }
 
-fn ov_hide_after(_o: &Option<Overlay>, ms: u64) {
-    if let Some(ov) = ov_get() {
-        ov.hide_after(ms);
-    }
-}
-
 struct Ui<'a> {
-    ov: Option<&'a Overlay>,
     log: Option<&'a Logger>,
     dry: bool,
     max_bs: usize,
-    recording: bool,
     t0: Instant,
     /// 焦点守卫(体检报告 §4.3):这一句的上屏目标还是不是按下时那个窗口。
     /// false = 已经中止本句注入,**一个字都不许再打**(见 worker 里的复核)。
@@ -1144,14 +1123,13 @@ fn cmd_replay(args: &[String], a: &Args) -> Result<()> {
 
     let mut wr = inject::StreamWriter::new(max_bs, streaming && !dry);
     let t0 = Instant::now();
-    let ov = None;
     let mut buf: Vec<Msg> = Vec::new();
 
     for chunk in samples.chunks(audio::FRAME_SAMPLES) {
         side.send_audio(chunk)?;
         side.drain(&mut buf);
         for m in buf.drain(..) {
-            let ui = Ui { ov, log: None, dry, max_bs, recording: true, t0, focus_ok: true };
+            let ui = Ui { log: None, dry, max_bs, t0, focus_ok: true };
             handle_msg(m, &mut wr, &ui);
         }
         // 按采样的真实节奏喂（半速，够逼近实时又不至于太慢）
@@ -1168,7 +1146,7 @@ fn cmd_replay(args: &[String], a: &Args) -> Result<()> {
                 // 只看 final 决定结束
             }
             let is_final = matches!(m, Msg::Final { .. });
-            let ui = Ui { ov, log: None, dry, max_bs, recording: false, t0, focus_ok: true };
+            let ui = Ui { log: None, dry, max_bs, t0, focus_ok: true };
             handle_msg(m, &mut wr, &ui);
             if is_final {
                 got_final = true;
@@ -1319,11 +1297,6 @@ fn cmd_config(a: &Args, root: &Path) -> Result<()> {
         let spread = raw_spread.clamp(ov::EDGE_SPREAD_MIN, ov::EDGE_SPREAD_MAX);
         let peak = raw_peak.clamp(ov::EDGE_PEAK_MIN, ov::EDGE_PEAK_MAX);
         let speed = raw_speed.clamp(ov::EDGE_SPEED_MIN, ov::EDGE_SPEED_MAX);
-        let fps = if a.u("edge_fps", "--edge-fps", 60)? <= 45 {
-            30
-        } else {
-            60
-        };
         let clamped = if spread != raw_spread || peak != raw_peak || speed != raw_speed {
             "(越界已夹到上下限)"
         } else {
@@ -1520,8 +1493,6 @@ struct RunOpts {
     feed_release: Option<f64>,
     /// 上下文偏置的临时热词文件（每句开始写一次；None = 关闭偏置）。
     ctx_hotwords: Option<PathBuf>,
-    /// 偏置生效时打一行提示（默认安静）。
-    verbose_ctx: bool,
     /// feed 测试:每句从 wav 头重放(测两句以上的场景必需)。
     feed_restart: bool,
     /// 上屏方式策略(`ime_wmchar`):每句开始时按目标窗口重新决定。
@@ -1581,8 +1552,6 @@ enum Stage {
 /// 松键之后仍然在往模型里喂音频的那一小段时间。
 struct Tail {
     start: Instant,
-    /// 模型最近一次吐出「新字」的时刻（尾巴够不够长主要看它）。
-    last_text_at: Instant,
     /// 到点之后才允许因为「已经安静了」提前结束。
     until_min: Instant,
     /// 硬上限。
@@ -1766,7 +1735,6 @@ fn begin_tail(tail: &mut Option<Tail>, o: &RunOpts) {
     let now = Instant::now();
     *tail = Some(Tail {
         start: now,
-        last_text_at: now,
         until_min: now + Duration::from_millis(c.min_ms as u64),
         until_max: now + Duration::from_millis(c.max_ms.max(c.min_ms) as u64),
         quiet: 0.0,
@@ -2015,13 +1983,13 @@ fn worker(
     // 焦点守卫(体检报告 §4.3):按下那一刻的前台窗口,整句以它为准。
     // `focus_lost` = 中途复核发现不一致 → 本句不再注入。
     let mut guard_hwnd: isize = 0;
-    /// 上一句:**在哪个窗口**、**净上屏了几个字**(供"收回上一句"用)。
+    // 上一句:**在哪个窗口**、**净上屏了几个字**(供"收回上一句"用)。
     let mut last_undo: Option<(isize, usize)> = None;
-    /// 本句开始时的计数快照(计数是累计的,差额才是这一句真正打上去的字数)。
-    let mut typed0: usize = 0;
-    let mut bs0: usize = 0;
-    /// 【诊断】`SAINPUT_DIAG_UNDO_AFTER_MS=800`:每句定稿后自动点一次"收回上一句"。
-    /// 私有桌面上没有托盘可点,回归靠它驱动。
+    // 本句开始时的计数快照(计数是累计的,差额才是这一句真正打上去的字数)。
+    let typed0: usize = 0;
+    let bs0: usize = 0;
+    // 【诊断】`SAINPUT_DIAG_UNDO_AFTER_MS=800`:每句定稿后自动点一次"收回上一句"。
+    // 私有桌面上没有托盘可点,回归靠它驱动。
     let mut diag_undo_at: Option<std::time::Instant> = None;
     let diag_undo_ms: Option<u64> = std::env::var("SAINPUT_DIAG_UNDO_AFTER_MS")
         .ok()
@@ -2669,11 +2637,9 @@ fn worker(
                 }
             }
             let ui = Ui {
-                ov: o.overlay.as_ref(),
                 log: o.log.as_ref(),
                 dry: o.dry,
                 max_bs: o.max_backspace,
-                recording,
                 t0,
                 focus_ok: !focus_lost,
             };
@@ -3141,7 +3107,6 @@ fn cmd_run(_args: &[String], a: &Args) -> Result<()> {
         } else {
             None
         },
-        verbose_ctx: a.b("verbose_ctx", "--verbose-ctx", "--quiet-ctx", false),
         ime_wmchar: c.ime_wmchar.clone(),
         feed_restart: a.b("feed_restart", "--feed-restart", "--no-feed-restart", false),
         dry: a.b("dry_run", "--dry-run", "--no-dry-run", false),

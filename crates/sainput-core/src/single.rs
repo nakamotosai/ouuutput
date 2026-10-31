@@ -39,9 +39,8 @@ const MAX_PATH: usize = 260;
 
 /// 本程序的可执行文件名 —— 接管时按它找人，别的进程一概不碰。
 const EXE_NAME: &str = "sainput.exe";
-const RUN_MUTEX: &str = r"Local\sainput-single-instance-v1";
-/// 「换人」动作的闸：两个新实例同时启动时串行执行，避免互相乱杀。
-const TAKEOVER_MUTEX: &str = r"Local\sainput-takeover-v1";
+// (锁名不是常量:要能被 `SAINPUT_SINGLE_NS` 换掉,所以由 `run_mutex_name()` /
+//  `takeover_mutex_name()` 现算 —— 早先那对写死的 `RUN_MUTEX`/`TAKEOVER_MUTEX` 已删。)
 
 /// 【回归/诊断专用】`SAINPUT_SINGLE_NS=<名字>` 换一套"单实例命名空间"。
 ///

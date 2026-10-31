@@ -178,14 +178,6 @@ impl KeyMode {
     pub fn is_compose(self) -> bool {
         matches!(self, KeyMode::Pebrel | KeyMode::Tsf)
     }
-    fn hwnd(self) -> isize {
-        match self {
-            KeyMode::Keys => 0,
-            KeyMode::Pebrel => 0,
-            KeyMode::Tsf => 0,
-            KeyMode::WmChar(h) | KeyMode::WmCharFinal(h) => h,
-        }
-    }
 }
 
 /// 日志用:当前方式打在哪个窗口上。

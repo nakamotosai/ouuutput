@@ -59,8 +59,7 @@
 - 症状识别:**脚本改完突然说某个参数/键"未知"**,先看 BOM,别去读逻辑 ✗;
 - 修法(一条命令,不改内容):`powershell -c "$p='x.ps1'; $t=[IO.File]::ReadAllText($p,[Text.Encoding]::UTF8); [IO.File]::WriteAllText($p,$t,(New-Object Text.UTF8Encoding $true))"`;
 - 检查:`head -c 3 x.ps1 | od -An -tx1` 必须是 `ef bb bf`。
-- 仓库里所有 .ps1 都要带 BOM(`_hygiene.ps1`/`make_test_wav.ps1`/`swap_engine.ps1` 都有);
-  `tools/swap_engine.ps1` 是我新建的,当时就是按这个经验加了 BOM,才没出事。
+- 仓库里所有 .ps1 都要带 BOM(`_hygiene.ps1`/`make_test_wav.ps1`/`deploy.ps1` 都有)。
 
 **⚠️ 部署与踩坑(2026-10-31 晚,务必记住)**
 
@@ -71,8 +70,9 @@
    已有的测试脚本(`test_race_guards.py` 等)都设了 `SAINPUT_SINGLE_NS=sainput-racetest`,照它们抄。
 2. **`cargo build --release` 报 `failed to remove file ...sainput.exe`(os error 5)
    不是编译错误** —— 编译早就过了,只是最后一步换不上(镜像被在跑的进程锁着)。
-   换法:`powershell -File tools/swap_engine.ps1`(会先检查有没有在跑,有就拒绝;
-   换的时候留一份 `.bak`)。
+   换法:`powershell -File tools/deploy.ps1`(改名腾位 → 拷新的 → 启动新实例接管;
+   不需要先手动退出,旧的那份留成 `.old-<时间戳>` 可回退)。
+   (早先那支"必须先在托盘退出"的 `tools/swap_engine.ps1` 已被它取代 —— 2026-11-01 移到 `F:\archive\sainput\`。)
 3. 启动用 `start.bat`(它会带 `run --hide-console`);直接 `Start-Process sainput.exe`
    没有子命令,起不来 ✗。
 4. 本次已部署:新引擎在 `target/x86_64-pc-windows-gnu/release/sainput.exe`
@@ -148,7 +148,8 @@ SAINPUT_FINAL_WAIT_MS=400,脚本在 2500ms 后才给真 final:
 `--no-log` 两种情况下目录为空。现成工具直接可用:`bench_models.py --wavs logs/corpus <候选模型>`。
 
 **还没装到在跑的那个二进制上**:`target/release/sainput.exe` 被正在运行的实例锁着,
-换不了。用户下次退出后跑 `powershell -File tools/swap_engine.ps1` 即可(它会拒绝在有进程时动手)。
+换不了。跑 `powershell -File tools/deploy.ps1` 即可(它改名腾位后启动新实例接管,不必先退出;
+早先那支"必须先退出"的 swap_engine.ps1 已移到 `F:\archive\sainput\`)。
 
 ### ⛔ 2026-11-01 回退:二遍改用离线模型的整条改动**已撤**,不得擅自重开
 

@@ -40,7 +40,6 @@ use std::sync::Mutex;
 
 type Hresult = i32;
 const S_OK: Hresult = 0;
-const S_FALSE: Hresult = 1;
 const E_NOTIMPL: Hresult = 0x8000_4001u32 as i32;
 const E_INVALIDARG: Hresult = 0x8007_0057u32 as i32;
 
@@ -883,8 +882,6 @@ struct DocMgrVtbl {
     push: unsafe extern "system" fn(*mut c_void, *mut c_void) -> Hresult,
     get_top: unsafe extern "system" fn(*mut c_void, *mut *mut c_void) -> Hresult,
 }
-
-type TfCreateThreadMgrFn = unsafe extern "system" fn(*mut *mut c_void) -> Hresult;
 
 /// 建存储 + 文档 + 上下文,把焦点给它。返回 (存储对象, 文本快照句柄所需的一切)。
 pub unsafe fn create_context(

@@ -32,7 +32,7 @@ use crate::{trace, Guid};
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicI32, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, LazyLock, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 #[link(name = "ole32")]
 extern "system" {
@@ -254,7 +254,9 @@ enum Intent {
 }
 
 struct EditSession {
-    vtbl: *const EditSessionVtbl,
+    /// COM 的虚表指针,**必须是第一个字段**:这个对象是以裸指针交给 msctf 的,
+    /// 它靠这里的指针找方法;我们这侧从不解引用它,所以编译器说"never read"。
+    _vtbl: *const EditSessionVtbl,
     refs: AtomicU32,
     intent: Mutex<Intent>,
     result: AtomicI32,
@@ -822,7 +824,7 @@ fn request_inline(intent: Intent) -> Hresult {
     }
     let tid = CURRENT_TID.load(Ordering::SeqCst);
     let session = Box::new(EditSession {
-        vtbl: &SESSION_VTBL,
+        _vtbl: &SESSION_VTBL,
         refs: AtomicU32::new(1),
         intent: Mutex::new(intent),
         result: AtomicI32::new(E_FAIL),
@@ -863,9 +865,4 @@ pub fn commit(text: &str) -> Hresult {
 
 pub fn cancel() -> Hresult {
     request(Intent::Cancel)
-}
-
-/// 组合态当前文本(诊断/测试用)。
-pub fn current_text() -> String {
-    with_state(|st| st.text.clone())
 }

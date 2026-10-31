@@ -106,7 +106,6 @@ extern "system" {
         s: *const u16, n: u32, dx: *const i32,
     ) -> i32;
     fn CreateRoundRectRgn(l: i32, t: i32, r: i32, b: i32, ew: i32, eh: i32) -> isize;
-    fn GetStockObject(i: i32) -> isize;
 }
 
 fn wide(s: &str) -> Vec<u16> {
@@ -133,12 +132,12 @@ unsafe extern "system" fn wndproc(h: isize, m: u32, w: usize, l: isize) -> isize
             let bg = wide("                    ");
             SetBkColor(hdc, 0x0028_2220);
             SetBkMode(hdc, 2 /* OPAQUE */);
-            let mut r1 = Rect { left: 0, top: 0, right: W, bottom: 60 };
+            let r1 = Rect { left: 0, top: 0, right: W, bottom: 60 };
             ExtTextOutW(hdc, 0, 0, 2 /* ETO_OPAQUE */, &r1, bg.as_ptr(), 0, ptr::null());
 
             // ---- 区域 2：CreateSolidBrush + FillRect（注释说会失败）
             let br = CreateSolidBrush(0x00A0_5030);
-            let mut r2 = Rect { left: 10, top: 70, right: 250, bottom: 120 };
+            let r2 = Rect { left: 10, top: 70, right: 250, bottom: 120 };
             FillRect(hdc, &r2, br);
             DeleteObject(br);
 

@@ -85,6 +85,7 @@ fn usage() {
          --max-backspace <N>    流式修正安全阀(默认 8)\n  \
          --ime-wmchar <MODE>    上屏方式:auto(默认)/ on / off / on:app.exe。目标窗口挂着\n  \
                                 输入法时,注入的 ASCII 会被它收走,这时改走 WM_CHAR。\n  \
+                                auto = 只要目标线程挂着输入法就换(不看窗口类名)\n  \
                                 名单形式是**覆盖**:名单外的窗口照旧按 auto 判\n  \
          --tail-ms <N>          松键后最少再收多久的尾巴音频,默认 200ms\n  \
          --tail-max-ms <N>      尾巴硬上限，默认 1200ms\n  \

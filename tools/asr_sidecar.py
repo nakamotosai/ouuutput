@@ -24,7 +24,7 @@
                             [--threads N] [--beam] [--no-itn] [--throttle-ms N]
                             [--twopass --twopass-model-dir <dir>]
 """
-import sys, os, glob, json, base64, argparse, time, traceback, unicodedata, re
+import sys, os, glob, json, base64, argparse, time, traceback, unicodedata
 
 sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 
@@ -101,15 +101,6 @@ def report_error(exc=None, sig=None, msg=None):
 
 
 # ------------------------------------------------------------------ 标点守卫
-def strip_sv_tags(t):
-    """剥掉 SenseVoice 结果里的 `<|zh|><|NEUTRAL|><|Speech|><|withitn|>` 这类标签。
-
-    那些标签是给下游做语言/情绪/事件路由用的,**不是字** —— 直接上屏会变成
-    `<|zh|><|NEUTRAL|>你这...`。可在 <| 与 |> 之间出现任意内容,所以按这对记号整段删。
-    """
-    return re.sub(r"<\|[^|]*\|>", "", t or "").strip()
-
-
 def content_key(t):
     """正文指纹:去掉空白 / 标点 / 符号,大小写归一。
 
@@ -216,9 +207,7 @@ def main():
     ap.add_argument("--twopass", action="store_true",
                     help="松键后用 --twopass-model-dir 的模型对本句整段音频重解一遍")
     ap.add_argument("--twopass-model-dir", default=None,
-                    help="二遍用的模型目录(只有 --twopass 时才加载)。"
-                         "三件套 encoder/decoder/joiner = 流式(如 480ms 档);"
-                         "只有一个 model*.onnx = 离线 SenseVoice(推荐,更准且更快)")
+                    help="二遍用的模型目录(只有 --twopass 时才加载)")
     a = ap.parse_args()
     if a.twopass and not a.twopass_model_dir:
         raise SystemExit("--twopass 必须配 --twopass-model-dir")
@@ -341,37 +330,18 @@ def main():
     # (2026-10-31 实测:进程退出码 255)。整段喂给流式识别器 + input_finished,
     # 走的 chunk 序列与流式完全一致,只是不再边收边出。
     tp = None
-    # 二遍也可以是一个**非流式(离线)**模型:SenseVoice(中英日韩粤一个模型,单 model.int8.onnx)。
-    # 为什么值得单独接一条:同一批真人语料上它比流式的 480ms 档更准(把"站位"听成"占位"这种
-    # 同音错改对了、句尾不再被截),而且**更快** —— RTF 0.06 vs 现用流式的 0.27,
-    # 定稿只多花"每 1 秒语音 60~70ms"(4.4s 句 ≈ 300ms),比等流式模型吐尾巴更稳。
-    # 判定方式:目录里是 encoder/decoder/joiner 三件套 = 流式;只有一个 model*.onnx = 离线。
-    tp_offline = None
     if a.twopass:
         if not os.path.isdir(a.twopass_model_dir):
             # 目录不对也**不退出**(退出 = 整个语音输入没了):安静地退回单遍。
             note(f"[sidecar] 二遍模型目录不存在,--twopass 本次失效: {a.twopass_model_dir}")
         else:
-            offline_md = (glob.glob(os.path.join(a.twopass_model_dir, "model*.onnx"))
-                          and not glob.glob(os.path.join(a.twopass_model_dir, "encoder*.onnx")))
             try:
-                if offline_md:
-                    tp_offline = sherpa_onnx.OfflineRecognizer.from_sense_voice(
-                        model=pick(a.twopass_model_dir, "model"),
-                        tokens=os.path.join(a.twopass_model_dir, "tokens.txt"),
-                        num_threads=int(os.environ.get("SAINPUT_TWOPASS_THREADS", "4")),
-                        use_itn=True,        # 数字/验证码要的是 903721,不是 九零三七二
-                        language="auto",
-                    )
-                    note("[sidecar] 二遍模型 = 离线 SenseVoice(整段重解)")
-                else:
-                    tp = build(hw, method, md=a.twopass_model_dir)
+                tp = build(hw, method, md=a.twopass_model_dir)
             except (Exception, SystemExit) as e:
                 # 二遍只是「更准」的加分项:加载不了就一路退化回流式结果,绝不因此不出字。
                 # (pick() 找不到 onnx 时抛的是 SystemExit —— 它不算 Exception,得单独接住。)
                 note(f"[sidecar] 二遍模型加载失败,--twopass 本次失效: {e}")
                 tp = None
-                tp_offline = None
 
     # 本句 PCM:二遍要重解**整段音频**,所以流式阶段必须在内存里留一份。
     # 16k float32 = 64KB/秒,10 秒一句才 640KB,句末(reset_stream)立刻释放 ——
@@ -386,7 +356,7 @@ def main():
         pcm["skip"] = False
 
     def pcm_push(x):
-        if tp is None and tp_offline is None:
+        if tp is None or pcm["skip"]:
             return          # 没开二遍(或本句已放弃):一个字都不留
         if pcm["n"] + len(x) > PCM_MAX:
             note("[sidecar] 本句超过 180 秒,放弃二遍重打")
@@ -398,29 +368,21 @@ def main():
 
     def twopass_decode():
         """用二遍模型把本句整段音频重解一遍。返回 (原文 或 None, 耗时ms)。"""
-        if (tp is None and tp_offline is None) or pcm["skip"] or pcm["n"] <= 0:
+        if tp is None or pcm["skip"] or pcm["n"] <= 0:
             return None, 0.0
         x = np.concatenate(pcm["buf"]) if len(pcm["buf"]) > 1 else pcm["buf"][0]
         t0 = time.perf_counter()
         try:
-            if tp_offline is not None:
-                # 离线模型:一次喂完整段,一次解完。返回里带 <|zh|><|NEUTRAL|> 这类标签,
-                # 必须剥掉 —— 它们是给下游做语言/情绪路由用的,不是字。
-                s = tp_offline.create_stream()
-                s.accept_waveform(RATE, x)
-                tp_offline.decode_stream(s)
-                raw = strip_sv_tags(getattr(s.result, "text", "") or "").strip()
-            else:
-                s = tp.create_stream()
-                s.accept_waveform(RATE, x)
-                s.input_finished()
-                # 整段喂完再解:这里不用限流式那个 4 帧上限 —— 本来就在等结果,
-                # 一次解完(10 秒音频 = 20 个 chunk)。
-                n = 0
-                while tp.is_ready(s) and n < 100000:
-                    tp.decode_stream(s)
-                    n += 1
-                raw = (tp.get_result(s) or "").strip()
+            s = tp.create_stream()
+            s.accept_waveform(RATE, x)
+            s.input_finished()
+            # 整段喂完再解:这里不用限流式那个 4 帧上限 —— 本来就在等结果,
+            # 一次解完(10 秒音频 = 20 个 chunk)。
+            n = 0
+            while tp.is_ready(s) and n < 100000:
+                tp.decode_stream(s)
+                n += 1
+            raw = (tp.get_result(s) or "").strip()
         except Exception as e:
             # 失败必须降级:宁可这句用流式结果,也不能把整句弄丢。
             note(f"[sidecar] 二遍重打报错,本句沿用流式结果: {e}")
@@ -465,8 +427,7 @@ def main():
         "punct": punct is not None,
         "itn": use_itn,
         "hotwords": n_hot,
-        "twopass": tp is not None or tp_offline is not None,
-        "twopass_kind": ("offline" if tp_offline is not None else ("online" if tp is not None else None)),
+        "twopass": tp is not None,
         "errors": _err["count"],
     })
 
@@ -679,28 +640,12 @@ def main():
                 # 二遍重打:松键了,用更准的模型把**本句整段音频**重解一遍覆盖 final。
                 # 失败/没开 → tp_used=False,last_out/last_raw 保持流式结果(安静降级)。
                 tp_used, tp_ms = False, 0.0
-                # **二遍只做精修,不许凭空造字**:流式那边一个字都没有 = 这一句本来就是
-                # 静音/噪声,此时二遍结果一概不采纳。理由是实测(2026-10-31):离线模型
-                # (SenseVoice)在近静音段会整段编出台词("The." / "Okay." / "."),
-                # 而流式模型在同一段上给空 —— 不堵这一下,用户会平白多出莫名其妙的字。
-                # 反过来,只要流式吐过字,二遍就有权覆盖它(那才是"更准"的用武之地)。
-                stream_had_text = bool((last_out or "").strip() or (last_raw or "").strip())
-                if tp is not None or tp_offline is not None:
+                if tp is not None:
                     raw2, tp_ms = twopass_decode()
-                    if raw2 and not stream_had_text:
-                        note(f"[sidecar] 流式本句无字,不采纳二遍结果(防离线模型凭空造字): {raw2[:40]!r}")
-                        raw2 = None
                     if raw2:
-                        if tp_offline is not None:
-                            # 离线模型(SenseVoice)自己已经带标点、也已经做过 ITN
-                            # (`903721` 而不是 `九零三七二`)—— 再过一遍中文标点模型和 ITN
-                            # 只会把它改坏,所以这里只保留排版整形(空格/大小写/去重复)。
-                            out2 = render_text(raw2, None, False, live["punct_mode"],
-                                               live["merge_terms"], live["fix_case"])
-                        else:
-                            # 二遍结果同样走完整渲染(标点/ITN):final=True 保证精度,
-                            # 不做流式那套标点节拍与「复用上一次结果」的近似。
-                            out2, _ = render(raw2, final=True)
+                        # 二遍结果同样走完整渲染(标点/ITN):final=True 保证精度,
+                        # 不做流式那套标点节拍与「复用上一次结果」的近似。
+                        out2, _ = render(raw2, final=True)
                         if out2:
                             last_raw, last_out = raw2, out2
                             tp_used = True

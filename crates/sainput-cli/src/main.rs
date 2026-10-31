@@ -33,19 +33,19 @@ use sainput_core::{
 const DEFAULT_MODEL: &str =
     "sherpa-onnx-x-asr-160ms-streaming-zipformer-transducer-zh-en-int8-2026-06-05";
 const DEFAULT_PUNCT: &str = "sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8";
-/// 二遍重打(高精度模式,`twopass`)用的模型:SenseVoice 离线版。
+/// 二遍重打(高精度模式,`twopass`)用的模型:x-asr-480ms。
 ///
-/// 为什么换成它(2026-10-31 用**用户真人语料**实测,9 句逐句对比):
-///   * 明显更准:5 句更对 / 1 句平 / 0 句更差 —— 同音错改对了("站位"→"占位"、
-///     "些提示词"→"写提示词"),句尾不再被截,而且自带标点;
-///   * **更快**:RTF 0.06(旧二遍 480ms 档约 0.13、现在跑的流式 160ms 档 0.27),
-///     定稿只多花"每 1 秒语音 60~70ms"(4.4s 句 ≈ 300ms);
-///   * 数字/验证码全对(ITN 开着给 `903721`,旧的流式会给"九零三七二",少一位);
-///   * **同一套 sherpa_onnx 运行时、纯 CPU、不引 torch/GPU** —— 装机成本不变。
-/// 对比过但没选:faster-whisper large-v3-turbo(真人语音上最差,且最重,2GB 显存)、
-/// funasr SenseVoiceSmall(同一套权重换 GPU 路径,精度没涨白背 1GB 显存)。
+/// 为什么是 480ms 档:整段解码时它明显更准(体检报告 §6.4 实测:160ms 把
+/// "THE DAY AFTER TOMORROW" 听成 "TODAY AFTER TOMORROW",480ms 那版是对的),
+/// 代价是整句重解多花约 1 秒 —— 而且只花在**松键之后**,不碰 960ms 首字。
+///
+/// 2026-11-01 回退记录:我曾把这里换成离线 SenseVoice 并**默认开启**二遍,理由是
+/// "真人语料上更准"。结果是错的 ——(1) 它自己的错会盖掉流式本来对的结果(长句尤其明显);
+/// (2) 它让"真定稿"迟到 2 秒,而这 2 秒里用户已经在说下一句,于是迟到的旧定稿落到新句子的
+/// 记账上 → **一句话被贴上两遍**。用户明确反对:"这根本不是我想要的效果"。
+/// 所以:默认关、模型回到 480ms 档;离线那条路留在侧车里(默认不加载,不影响行为)。
 const DEFAULT_TWOPASS_MODEL: &str =
-    "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17";
+    "sherpa-onnx-x-asr-480ms-streaming-zipformer-transducer-zh-en-int8-2026-06-05";
 const CONF_NAME: &str = "sainput.conf";
 const HOTWORDS_NAME: &str = "hotwords.txt";
 
@@ -566,11 +566,14 @@ fn cfg(a: &Args) -> Result<Cfg> {
         None => PathBuf::from(resolve_python()?),
     };
 
-    // 二遍重打:开了就必须能拿到模型目录,否则直接说清楚(别等 sidecar 起来才报)。
-    // 二遍重打**默认开**(2026-10-31 实测:换成 SenseVoice 后是"更准 + 更快",
-    // 没有理由让用户自己去开)。缺模型时**降级**成单遍,不是启动失败 ——
-    // 二遍只是加分项,拿不到更好的结果不等于用不了这个输入法。
-    let mut twopass = a.b("twopass", "--twopass", "--no-twopass", true);
+    // 二遍重打**默认关**(2026-11-01 回退)。
+    //
+    // 为什么回退:上线后用户实测反馈"长句识别怪怪的、还有一句重复上屏"——
+    // 离线重解在长句上既是**时间**问题(每 1 秒语音 60~70ms,20s 句子 ≈ 1s),
+    // 也是**准确度**问题:SenseVoice 自己的错会**盖掉流式本来对的结果**(它是有权覆盖的),
+    // 而流式那边是用户边说边看着改的、他心里的"原文"是那一版。
+    // 要再开:--twopass(或配置 twopass = true)。重新启用前必须先解决"重复上屏"。
+    let mut twopass = a.b("twopass", "--twopass", "--no-twopass", false);
     let twopass_model_dir = resolve_path(
         &root,
         &a.s("twopass_model_dir", "--twopass-model-dir")
@@ -2890,21 +2893,11 @@ fn cmd_run(_args: &[String], a: &Args) -> Result<()> {
     let toggle = a.b("toggle", "--toggle", "--hold", false);
     let lazy_mic = a.b("lazy_mic", "--lazy-mic", "--warm-mic", false);
     // 尾巴参数:实测默认值见 README「尾巴」一节(都是拿真机麦克风量出来的)
-    let mut tail = tail_of(a)?;
-    if c.twopass {
-        // 二遍模式下,尾巴只剩**一个**职责:别把最后一个音剪掉(用户原话:"我松手就是说完了")。
-        // 原来那套等待(最多 1200ms + 补 480ms 底噪 + 等流式把最后几个字吐完)全都只有一个目的:
-        // 让**流式模型**补上它的"右上下文"。而二遍模式下流式的定稿会被整段重解**覆盖**掉 ✗,
-        // 等它等于白等 —— 实测(2026-10-31):松键后 1.85s 才出字,其中大半是这段空转。
-        // 收紧之后:安静 250ms 即收工、最多 400ms、不补底噪(离线模型整段解码不需要右上下文)。
-        // ⚠️ 代价说清楚:万一二遍模型挂了要沿用流式结果,那一版会**比原来更容易掉尾字** ——
-        //    这是"宁可偶尔掉尾字,也不要每次都白等 1 秒"的取舍;要退回老行为:--no-twopass。
-        tail.max_ms = tail.max_ms.min(400);
-        // pad 只在用户没显式设过的时候归零(设过的说明他知道自己在干什么)
-        if a.s("tail_pad_ms", "--tail-pad-ms").is_none() {
-            tail.pad_ms = 0;
-        }
-    }
+    let tail = tail_of(a)?;
+    // 2026-11-01 回退:这里曾有一段"二遍模式下把尾巴收紧到 400ms、不补底噪"的改动
+    // (理由:那段等待只为让流式模型吐字,而它的定稿会被二遍覆盖 = 白等)。
+    // 现在整段去掉 —— 默认不开二遍之后它本来也不会生效,但**不留这种"顺手改用户手感"的代码**:
+    // 尾巴参数是拿真机麦克风一句句量出来的,不是我能顺手改的。
     if tail.rms > 0.0 {
         println!(
             "[sainput] 尾巴: 松键后最少收 {}ms（上限 {}ms / 安静 {}ms 即收工）+ 补 {}ms 底噪（静音阈值 RMS {:.3}）",

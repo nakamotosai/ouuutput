@@ -510,6 +510,46 @@ build.bat build --release
 
 产物在 `target\<triple>\release\sainput.exe`。
 
+### 换版本 / 排查前先看:sainput **自己**的 TSF 残留怎么修(`tools/ime_repair.ps1`)
+
+我们的 TSF 薄壳做组合态实验时,**`ActivateProfile(..., TF_IPPMF_FORPROCESS)` 会连带把该语言的
+默认输入法改成自己**(`crates/sainput-tsf-host/src/profile.rs` 有记录;PLAN-NEXT 的 R1 判决据此
+把 TSF 降级为"可选模式、产品不主动激活")。残留只会落在两处**用户级(HKCU)**设置里:
+
+- `HKCU\Control Panel\International\User Profile\InputMethodOverride` —— 默认输入法覆盖
+  (`Get-WinDefaultInputMethodOverride` 读的就是它);
+- `zh-Hans-CN` 用户语言列表里**属于我们的**那条 tip(`Get-WinUserLanguageList`)。
+
+后果:中文语境下激活的是那个壳,**注入的字母被当成本地输入法的输入吃掉、整句丢失**。清它 / 还原它:
+
+```powershell
+powershell -File tools/ime_repair.ps1 -Check        # 默认动作:只报告(含身份闸结论),一个字不改
+powershell -File tools/ime_repair.ps1 -Fix          # 清残留(先打印原值 + 落盘备份 → 改 → 复读核验)
+powershell -File tools/ime_repair.ps1 -Fix -DryRun  # 只演练:把 -Fix 要做的事打印出来,不写任何东西
+powershell -File tools/ime_repair.ps1 -Register     # 反向:把我们的 tip 加回列表 + 设回默认(留着重跑组合态)
+```
+
+我们认的"我们"**只有一个**(仓库权威常量):CLSID `{FCC45A5E-09C4-410A-B696-BDD2DA66A21F}`
+(`crates/sainput-tsf/src/lib.rs:92` 的 `CLSID_SAINPUT_TSF`)、profile `{6A1F2B7C-3D4E-4F50-9A1B-2C3D4E5F6071}`
+(`crates/sainput-tsf-host/src/profile.rs:23` 的 `PROFILE_GUID`),与 `tools/tsf_register.ps1` 同源。
+
+要点:
+
+- **身份闸(硬)**:`-Fix` / `-Register` 动手之前**必须先确认**目标 CLSID 的 `InProcServer32` 指向的是
+  **我们的 DLL**(路径里含 `sainput`)。**对不上就硬拒绝、什么都不改**(`exit 5`),绝不"猜它是我们的"。
+  这条闸是为一次真实事故加的:本机默认输入法其实是另一套**独立第三方输入法** Metasequoia 水杉输入法
+  (`{E3062E9A-...}`,`C:\WINDOWS\system32\IME\MetasequoiaIME\...`)—— 它是**用户自己在用的**,
+  不是我们的残留。本机我们的 TSF 当前**根本没注册**,所以 `-Check` 会直说"身份闸不通过、
+  不会做任何修改",`-Fix` / `-Register` 也会被拒。
+- **只写用户级**:只动 HKCU 的上述两项,不碰 HKLM、不碰其它任何系统位置。
+- **安全闸**:若删完会让那个语言一条 tip 都不剩(等于把用户的中文输入整个删掉),默认**拒绝**,
+  要显式加 `-AllowEmptyLanguage`;`-Fix` 会先把原值落盘备份(默认在 `%TEMP%`)再改。
+- `-Fix` / `-Register` 走 `Set-WinUserLanguageList -Force` 时**先读出整份语言列表**再改,别处语言 /
+  别家 tip 一个不丢;改完立刻复读核验。
+
+脚本以 **UTF-8(带 BOM)** 保存 —— PowerShell 5 会按 ANSI 解析无 BOM 的 `.ps1`,中文会被吃成乱码
+(本仓库踩过这个坑)。
+
 ---
 
 ## 10. 已知限制

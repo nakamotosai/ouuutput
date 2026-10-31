@@ -1972,6 +1972,13 @@ fn worker(
     // 上一句的 final 还在路上就又按下了热键：这时不能 wr.reset()，
     // 否则那条 final 会因为「屏幕上什么都没有」而把整句重打一遍。
     let mut defer_reset = false;
+    // 上一句的 final 还没到、新一句**已经出字**了 —— 这条 final 的账已经作废。
+    //
+    // 为什么必须有这个状态(2026-11-01 用户实测):真定稿迟到时(离线整段重解那版迟到约 2 秒),
+    // 用户早就开始说下一句了。新句子的字会写进**上一句还没归零的账**里,等上一句的定稿一到,
+    // 差额算术拿新句的字当自己的尾巴改来改去 —— 真机上就是「一句话被贴上两遍」。
+    // 所以:新句一出字就当场归零并宣告作废,那条迟到的定稿整条丢掉。
+    let mut defer_expired = false;
     let mut buf: Vec<Msg> = Vec::new();
     let t0 = Instant::now();
     let mut utterances = 0usize;
@@ -2195,11 +2202,14 @@ fn worker(
                     }
                     recording = true;
                     if stage == Stage::AwaitFinal {
-                        // 上一句的 final 还在路上：等它到了再 reset，
-                        // 否则它会以为屏幕上什么都没有，把整句重打一遍。
+                        // 上一句的 final 还在路上:等它到了再 reset,
+                        // 否则它会以为屏幕上什么都没有,把整句重打一遍。
+                        // (但**只要新一句出了字**,这笔账就作废 —— 见 `defer_expired`。)
                         defer_reset = true;
+                        defer_expired = false;
                     } else {
                         reset_writer(&mut wr);
+                        defer_expired = false;
                     }
                     // 前置空格：**每句开始时问一次**光标左边有没有字。
                     // ⚠️ 必须在 reset **之后**设 —— reset 会清掉前缀（前缀属于"上一句"的决策），
@@ -2583,6 +2593,23 @@ fn worker(
                 }
                 continue;
             }
+            // 上一句的定稿还没回来,但**新一句已经出字**了 —— 这笔账当场作废。
+            //
+            // 不这么做的后果(2026-11-01 用户实测「一句话被贴上两遍」):新句子的字写进
+            // 上一句没归零的账里,上一句的定稿一到,差额算术就把新句的字当成自己的尾巴
+            // 改来改去。这里归零 + 标记作废,那条迟到的定稿到点后整条丢掉
+            // (它的字早就在屏幕上:流式 partial 一路打过去,加上 cap 那一版)。
+            if defer_reset && matches!(&m, Msg::Partial { .. }) {
+                reset_writer(&mut wr);
+                defer_reset = false;
+                defer_expired = true;
+                if let Some(l) = o.log.as_ref() {
+                    l.line(
+                        "! 上一句的定稿未回而新句已出字:作废上一句的末字修正(它的字已上屏),\
+                         新句从干净的账开始",
+                    );
+                }
+            }
             // `cap` = 收尾硬上限到点时,我们**自己**把"当前最好的一版"先打上屏的那一次
             // (见 `final_wait_ms`)。它 **不是**这一句的结束:真 final 通常还在路上,
             // 到了以后照常走 finish 那条路 —— 关键模式下 `finalize` 是**差额补打**
@@ -2592,6 +2619,15 @@ fn worker(
             // 之后真 final 反而被当迟到帧丢掉 —— 用户的"最后一个字"就真没了。
             let is_final_finish = matches!(&m, Msg::Final { reason, .. } if reason == "finish");
             let is_final_endpoint = matches!(&m, Msg::Final { reason, .. } if reason == "endpoint");
+            // 上一句那条迟到的定稿:它的账已经作废(新句的字早上屏了)——
+            // **连 handle_msg 都不进**,否则差额算术会拿它去改新句已经打出去的字。
+            if is_final_finish && defer_expired {
+                defer_expired = false;
+                if let Some(l) = o.log.as_ref() {
+                    l.line("! 丢弃上一句迟到的定稿(它的字已上屏,不再回头改;当前句状态不受影响)");
+                }
+                continue;
+            }
             let ui = Ui {
                 ov: o.overlay.as_ref(),
                 log: o.log.as_ref(),
@@ -2671,25 +2707,35 @@ fn worker(
                 }
             }
             if is_final_finish || (is_final_endpoint && stage != Stage::Recording) {
-                if is_final_finish {
-                    // 定稿之后这一句的 streaming 一律不认(见 `finalized` 的注释)
-                    finalized = true;
-                    // T5.2:记下这一句落在哪个窗口、净打上去几个字 —— "收回上一句"要用。
-                    // 净字数 = 这一句的差额(打字 - 退格),不是累计值。
-                    let typed = wr.typed_chars.saturating_sub(typed0);
-                    let bs = wr.backspaces.saturating_sub(bs0);
-                    let net = typed.saturating_sub(bs);
-                    let target = inject::focused_window();
-                    last_undo = Some((target, net));
-                    if let Some(ms) = diag_undo_ms {
-                        diag_undo_at = Some(std::time::Instant::now() + std::time::Duration::from_millis(ms));
-                    }
-                }
-                stage = Stage::Idle;
                 if defer_reset {
-                    // 上一句的 final 终于到了：现在才轮到新一句重新起算
+                    // 这条定稿属于**上一句**(新一句已经开始 —— `defer_reset` 就是这个记号):
+                    // 只让它把上一句的尾巴补完(handle_msg 已经跑过),然后归零。
+                    //
+                    // ⚠️ 绝不能在这里把 `stage = Idle` / `finalized = true` 按下去 ——
+                    // 那两个状态此刻属于**新一句**。按下去之后,新句子的后续帧会被上面
+                    // 那两处守卫(Idle 跳过、finalized 丢弃迟到 streaming)当成迟到帧丢掉,
+                    // 用户看到的就是「后半句直接没了」。
                     reset_writer(&mut wr);
                     defer_reset = false;
+                    if let Some(l) = o.log.as_ref() {
+                        l.line("! 上一句的定稿到了(新句已开始):只补它的尾巴,不动当前句的状态");
+                    }
+                } else {
+                    if is_final_finish {
+                        // 定稿之后这一句的 streaming 一律不认(见 `finalized` 的注释)
+                        finalized = true;
+                        // T5.2:记下这一句落在哪个窗口、净打上去几个字 —— "收回上一句"要用。
+                        // 净字数 = 这一句的差额(打字 - 退格),不是累计值。
+                        let typed = wr.typed_chars.saturating_sub(typed0);
+                        let bs = wr.backspaces.saturating_sub(bs0);
+                        let net = typed.saturating_sub(bs);
+                        let target = inject::focused_window();
+                        last_undo = Some((target, net));
+                        if let Some(ms) = diag_undo_ms {
+                            diag_undo_at = Some(std::time::Instant::now() + std::time::Duration::from_millis(ms));
+                        }
+                    }
+                    stage = Stage::Idle;
                 }
             }
         }

@@ -598,7 +598,7 @@ checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
 
 [[package]]
 name = "sainput-cli"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "anyhow",
  "sainput-core",
@@ -607,7 +607,7 @@ dependencies = [
 
 [[package]]
 name = "sainput-core"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "anyhow",
  "base64",
@@ -618,11 +618,11 @@ dependencies = [
 
 [[package]]
 name = "sainput-tsf"
-version = "0.2.5"
+version = "0.2.6"
 
 [[package]]
 name = "sainput-tsf-host"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "anyhow",
  "sainput-tsf",

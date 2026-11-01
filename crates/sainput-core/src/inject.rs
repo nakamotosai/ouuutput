@@ -824,6 +824,70 @@ mod tests {
         assert_eq!(w.injected, "12345");
     }
 
+    /// 🔴 2026-11-02 用户报的「长句卡住不动、松开时一下子把后面卡住的文字全吐出来」。
+    ///
+    /// 现场:标点模型在句中插了一个空格(「补充一下我发的那些指令现在是白的」→
+    /// 「补充一下 我发的那些指令现在是白的」),公共前缀只有 4 字、要退 12 字 > `max_backspace`(默认 8)。
+    /// 老代码在这里 `return`,而 `injected` 保持旧版 —— 后面每一条 partial 的公共前缀
+    /// 都还停在那个空格的位置,改动距离只增不减,**整句冻到 finalize**。
+    ///
+    /// 真机 186 句语料里 21 句中招(最长冻 14.7 秒),所以这条必须是「真的重打」。
+    #[test]
+    fn big_revision_resyncs_instead_of_freezing_the_sentence() {
+        let mut w = StreamWriter::new(8, true);
+        w.set_mode(KeyMode::WmChar(0)); // 句柄 0:不真投递,只走记账
+        w.update("补充一下我发的那些指令现在是白的").unwrap();
+        assert_eq!(w.backspaces, 0, "第一版是纯追加");
+        // 公共前缀 4 字,要退 12 字 > max_backspace(8)
+        w.update("补充一下 我发的那些指令现在是白的").unwrap();
+        assert_eq!(
+            w.injected, "补充一下 我发的那些指令现在是白的",
+            "改动距离超过 max_backspace 也必须真的重打 —— 冻住这一句就是用户报的 bug"
+        );
+        assert_eq!(w.backspaces, 12);
+        // 之后照常追加:屏幕已经同步,不用再退格
+        w.update("补充一下 我发的那些指令现在是白的啊").unwrap();
+        assert_eq!(w.injected, "补充一下 我发的那些指令现在是白的啊");
+        assert_eq!(w.backspaces, 12, "追加不该再退格");
+        // 定稿也只是一次纯追加
+        w.finalize("补充一下 我发的那些指令现在是白的啊", 32).unwrap();
+        assert_eq!(w.injected, "补充一下 我发的那些指令现在是白的啊");
+        assert_eq!(w.backspaces, 12);
+    }
+
+    /// 大改动要**限频**(模型每拍回头改一次 = 每拍重打整句),但限频期一过必须补上 ——
+    /// 「限频」不是「丢弃」,这是老代码冻住整句的根源。
+    #[test]
+    fn big_revision_is_rate_limited_but_never_dropped() {
+        let mut w = StreamWriter::new(8, true);
+        w.set_mode(KeyMode::WmChar(0));
+        w.update("一二三四五六七八九十").unwrap();
+        w.update("零一二三四五六七八九十").unwrap(); // bs=10 > 8 → 第一笔立刻重打
+        assert_eq!(w.injected, "零一二三四五六七八九十");
+        let bs0 = w.backspaces;
+        // 紧接着又一次大改:这一拍先不动屏幕(限频)
+        w.update("〇一二三四五六七八九十").unwrap();
+        assert_eq!(w.injected, "零一二三四五六七八九十", "限频期内先不动");
+        assert_eq!(w.backspaces, bs0, "限频期内不许真退格");
+        std::thread::sleep(BIG_RESYNC_MIN_INTERVAL + std::time::Duration::from_millis(20));
+        w.update("〇一二三四五六七八九十").unwrap();
+        assert_eq!(w.injected, "〇一二三四五六七八九十", "限频期过了必须真的补上");
+        assert!(w.backspaces > bs0);
+    }
+
+    /// 换句要清掉限频钟:下一句的第一笔大改动必须立刻生效,不许被上一句的节流挡住。
+    #[test]
+    fn reset_clears_the_resync_clock() {
+        let mut w = StreamWriter::new(8, true);
+        w.set_mode(KeyMode::WmChar(0));
+        w.update("一二三四五六七八九十").unwrap();
+        w.update("零一二三四五六七八九十").unwrap(); // 记下重打时刻
+        w.reset().unwrap();
+        w.update("一二三四五六七八九十").unwrap();
+        w.update("〇一二三四五六七八九十").unwrap();
+        assert_eq!(w.injected, "〇一二三四五六七八九十", "新一句的大改动不许被上一句节流");
+    }
+
     /// 上屏方式的选择逻辑(纯函数,不需要真窗口)。
     ///
     /// 这里钉的是**只在该换的时候换**:`auto` 现在**只看目标线程挂不挂输入法** ——
@@ -991,11 +1055,14 @@ mod tests {
 
     /// 安全阀放弃修正时,**记账必须留在屏幕上那一版**。
     ///
-    /// 两条路径都不许把 `injected` 推到屏幕前面 —— 一旦对不上,后面每次退格都是
-    /// 照「屏幕上有这些字」算的,算出来的退格数会删掉用户真正的文字。
+    /// 不许把 `injected` 推到屏幕前面 —— 一旦对不上,后面每次退格都是照
+    /// 「屏幕上有这些字」算的,算出来的退格数会删掉用户真正的文字
+    /// (2026-11-01 实测:「说英文的那一句整段不见了」)。
     ///
-    /// 这两次调用的差值都**故意超过**安全阀(final 32 / 流式 `max_backspace` 8),
-    /// 所以都走「放弃」分支 —— 不会真的 SendInput,测试里可以放心跑。
+    /// 现在只剩**定稿**这一条放弃路径:流式那条改成了限频重打
+    /// (见 `big_revision_resyncs_instead_of_freezing_the_sentence`),
+    /// 它要么真的重打了(记账跟着走),要么这一拍不动(记账不动),不会出现
+    /// 「记账说有、屏幕上没有」。
     #[test]
     fn giveup_keeps_bookkeeping_on_screen() {
         let mut w = StreamWriter::new(8, true);
@@ -1009,10 +1076,7 @@ mod tests {
         // final 超限(> 32):整笔放弃,记账不动
         w.finalize("收口", 32).unwrap();
         assert_eq!(w.injected, screen, "final 放弃后 injected 必须还是屏幕上那一版");
-
-        // 流式超限(> max_backspace 8):同样是放弃且记账不动
-        w.update("收口").unwrap();
-        assert_eq!(w.injected, screen, "流式放弃后 injected 必须还是屏幕上那一版");
+        assert_eq!(w.backspaces, 0, "放弃就是一笔都不动");
     }
 
     /// 组合态模式的替身:只记录被要求设置/提交了什么,不碰任何窗口。
@@ -1114,11 +1178,18 @@ mod tests {
 
 }
 
+/// 两次「大改动重打」之间的最小间隔（改动距离超过 `max_backspace` 时）。
+///
+/// 为什么是 250ms：流式模型本身 160ms 才吐一拍，用户分不出 250ms 和 160ms 的差别；
+/// 而模型要是每拍都在回头改，这条线把重打压到最多 4 次/秒 —— 既不会把目标窗口刷爆，
+/// 也**绝不会**像老代码那样把整句冻到松手（见 `big_resync_at` 的注释）。
+const BIG_RESYNC_MIN_INTERVAL: std::time::Duration = std::time::Duration::from_millis(250);
+
 /// 流式改写器：把「当前应显示的文本」增量地落到目标窗口。
 ///
 /// 策略：算公共前缀 → 退格掉差异尾巴 → 补打新增部分。
-/// `max_backspace` 是安全阀：改动超过这个字数就放弃本次修正，
-/// 宁可等下一帧，也不冒删掉用户自己文字的风险。
+/// `max_backspace` 是安全阀：改动超过这个字数时**降频重打**（最快
+/// `BIG_RESYNC_MIN_INTERVAL` 一次），而不是永久放弃这一帧 —— 见 `big_resync_at`。
 pub struct StreamWriter {
     injected: String,
     max_backspace: usize,
@@ -1149,6 +1220,20 @@ pub struct StreamWriter {
     composed: String,
     pub typed_chars: usize,
     pub backspaces: usize,
+    /// 上一次「改动距离超过 `max_backspace` 的大重打」发生在什么时候。
+    ///
+    /// 🔴 这道阀门原来是**永久放弃**：一帧改动超过 `max_backspace` 就 `return`，
+    /// 而 `injected` 保持旧值。于是后面每一条 partial 的公共前缀都还停在那个改动点，
+    /// 改动距离只增不减，**整句从此不再更新**，直到松手 finalize 才一次补上。
+    /// 用户原话（2026-11-02）：「说的稍微长一点就卡住不动，松开时一下子把后面卡住的
+    /// 文字全吐出来」；真机 186 句语料里 21 句中招，最长冻了 14.7 秒。
+    /// 诱因几乎都是标点模型在句中插一个空格（「补充一下我发的」→「补充一下 我发的」），
+    /// 改动距离 9~29 字，而默认阈值只有 8。
+    ///
+    /// 现在改成限频：同样的改动离上次大重打超过 `BIG_RESYNC_MIN_INTERVAL` 就真的退格
+    /// 重打（十几毫秒的事），屏幕永远跟得上；模型要是每拍都在来回改，这条线保证
+    /// 不会每拍都重打整句。
+    big_resync_at: Option<std::time::Instant>,
 }
 
 impl StreamWriter {
@@ -1164,6 +1249,7 @@ impl StreamWriter {
             composed: String::new(),
             typed_chars: 0,
             backspaces: 0,
+            big_resync_at: None,
         }
     }
 
@@ -1240,6 +1326,8 @@ impl StreamWriter {
         // 前缀属于"这一句"的决策,换句要重新决定(光标位置可能已经变了)
         self.prefix.clear();
         self.trailing_space = false;
+        // 限频钟也是"这一句"的状态:下一句的第一笔大改动必须立刻生效
+        self.big_resync_at = None;
         if self.composed.is_empty() {
             return Ok(());
         }
@@ -1318,7 +1406,17 @@ impl StreamWriter {
         let common = common_prefix_chars(&self.injected, &want);
         let bs = self.injected.chars().count().saturating_sub(common);
         if bs > self.max_backspace {
-            return Ok(()); // 改动太大,等 final
+            // 大改动:限频重打,**绝不永久放弃** —— 见 `big_resync_at` 的注释。
+            // 老写法是直接 `return`:injected 停在旧版,后面每一条 partial 的改动距离
+            // 都还从那个点算起、只增不减,整句就冻到松手才一次吐出来。
+            let now = std::time::Instant::now();
+            let due = self
+                .big_resync_at
+                .is_none_or(|t| now.duration_since(t) >= BIG_RESYNC_MIN_INTERVAL);
+            if !due {
+                return Ok(()); // 刚重打过:这一拍先不动屏幕,下一拍再来(不会冻住整句)
+            }
+            self.big_resync_at = Some(now);
         }
         let tail: String = want.chars().skip(common).collect();
         self.backspace_then_type(bs, &tail)?;

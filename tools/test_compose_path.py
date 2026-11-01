@@ -64,17 +64,27 @@ def main():
     fails = []
 
     pre = CN[:6] + "错错错"
+    # 2026-11-02 用户报的「长句卡住不动、松开时一下子把后面卡住的文字全吐出来」:
+    # 句中插一个逗号 → 公共前缀 2 字、要退 16 字 > max_backspace(8)。老代码把这一帧
+    # **永久放弃**,屏幕停在旧版直到定稿。这里在定稿之前读屏(`--hold-ms`),必须看到
+    # 已经改过来的流式版本 —— 只验定稿后的文本是验不出这个 bug 的(定稿会把尾巴补上)。
+    pre_big = "你好这是确定性入口。(abc123)"      # 少一个逗号
+    mid_big = "你好,这是确定性入"                 # frames=2 的第一段(9 字)
     cases = [
-        ("一次投递(无前缀)", CN, [], CN, "edit"),
-        ("流式 4 段", CN, ["--frames", "4"], CN, "edit"),
-        ("句首补空格", CN, ["--prefix", "space"], " " + CN, "edit"),
-        ("整句一次(最终态)", CN, ["--mode", "wmchar-final"], CN, "edit"),
+        ("一次投递(无前缀)", CN, [], CN, "edit", None),
+        ("流式 4 段", CN, ["--frames", "4"], CN, "edit", None),
+        ("句首补空格", CN, ["--prefix", "space"], " " + CN, "edit", None),
+        ("整句一次(最终态)", CN, ["--mode", "wmchar-final"], CN, "edit", None),
         # T4.5 两种退格风味各一条:经典 Edit 走 WM_CHAR(0x08),RichEdit 走 WM_KEYDOWN/UP
-        ("退格改写/经典 Edit 风味", CN, ["--pre", pre], CN, "edit"),
-        ("退格改写/RichEdit 风味", CN, ["--pre", pre], CN, "rich50"),
+        ("退格改写/经典 Edit 风味", CN, ["--pre", pre], CN, "edit", None),
+        ("退格改写/RichEdit 风味", CN, ["--pre", pre], CN, "rich50", None),
+        # 大改动必须重打:定稿前读屏,看到的是改过来的流式版本,不是冻住的旧版
+        ("大改动重打/定稿前读屏", CN,
+         ["--pre", pre_big, "--frames", "2", "--max-backspace", "8", "--hold-ms", "2000"],
+         CN, "edit", mid_big),
     ]
 
-    for name, text, extra, expect, control in cases:
+    for name, text, extra, expect, control, mid in cases:
         h = hdesk.open_desktop(DESKTOP)
         hp = ht = None
         try:
@@ -92,6 +102,16 @@ def main():
                 str(sainput),
                 "selftest compose " + text + f" --hwnd {hex(edit)} --mode wmchar " + " ".join(extra),
                 DESKTOP)
+            mid_got = None
+            if mid is not None:
+                # 引擎投完流式帧会停 `--hold-ms`,这段窗口里读屏就是「定稿前」的状态
+                t0 = time.time()
+                mid_got = ""
+                while time.time() - t0 < 1.6:
+                    mid_got = hdesk.read_edit(edit)
+                    if mid_got == mid:
+                        break
+                    time.sleep(0.05)
             code = hdesk.wait_exit(ep, 30000)
             hdesk.close(et)
             hdesk.close(ep)
@@ -102,9 +122,10 @@ def main():
                 if got == expect:
                     break
                 time.sleep(0.1)
-            ok = code == 0 and got == expect
+            ok = code == 0 and got == expect and (mid is None or mid_got == mid)
             print(f"[{'PASS' if ok else 'FAIL'}] {name}: exit={code} text={got!r}"
-                  + ("" if ok else f" expect={expect!r}"))
+                  + (f" mid={mid_got!r}" if mid is not None else "")
+                  + ("" if ok else f" expect={expect!r}" + (f" mid_expect={mid!r}" if mid is not None else "")))
             if not ok:
                 fails.append(name)
         finally:

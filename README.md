@@ -244,7 +244,7 @@ sainput selftest inject "文字"                只测上屏路径
 | `--beam` / `--no-beam` | `modified_beam_search`（更准、稍慢；热词需要它） |
 | `--threads N` | 推理线程数（默认 2） |
 | `--throttle-ms N` | 流式渲染节拍（默认 80ms） |
-| `--max-backspace N` | 流式修正的安全阀（默认 8） |
+| `--max-backspace N` | 流式修正的安全阀（默认 8）：改动超过 N 字时降频重打（250ms 内最多一次） |
 | `--device <NAME>` | 指定麦克风 |
 | `--lazy-mic` / `--warm-mic` | 按需开麦 / 常驻预热（默认预热） |
 | `--overlay-mode off\|bar\|orb\|edge` | 悬浮显示方式（默认 `edge`） |

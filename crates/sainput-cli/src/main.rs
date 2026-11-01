@@ -3725,6 +3725,16 @@ fn cmd_selftest(args: &[String]) -> Result<()> {
                     w.update(&partial)?;
                 }
             }
+            // `--hold-ms`:投完流式帧先停这么久再定稿。回归用 —— 在**定稿之前**
+            // 读目标窗口,才能看见「流式阶段有没有把屏幕冻住」(2026-11-02 那个 bug
+            // 恰恰是定稿会把尾巴补上,只看定稿后等于什么都没验)。
+            let hold_ms: u64 = opt(args, "--hold-ms")
+                .and_then(|v| v.trim().parse().ok())
+                .unwrap_or(0);
+            if hold_ms > 0 {
+                println!("[selftest] 停 {hold_ms}ms 再定稿(回归:读中途的屏幕)");
+                std::thread::sleep(Duration::from_millis(hold_ms));
+            }
             w.finalize(&text, max_bs)?;
             println!(
                 "[selftest] compose 已投递 mode={} frames={frames}",
@@ -3746,6 +3756,7 @@ fn cmd_selftest(args: &[String]) -> Result<()> {
             println!("      --prefix space      句首补一个空格(进同一条退格算术)");
             println!("      --frames N          模拟流式:切成 N 段逐段 update");
             println!("      --pre <文本>        先投一个错的版本再定稿(走退格改写算术)");
+            println!("      --hold-ms N         投完流式帧停 N 毫秒再定稿(回归:读定稿前的屏幕)");
             println!("      --pid N             TSF 模式:显式目标进程(测试用;跨桌面时窗口句柄推不出 pid)");
             Ok(())
         }

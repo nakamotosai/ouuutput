@@ -4,7 +4,7 @@
 //! 专用线程装 WH_KEYBOARD_LL，目标键按下/抬起转成事件，
 //! 并且**把这个键吃掉**，不让它漏给目标应用。
 
-use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Mutex, OnceLock};
 
@@ -17,8 +17,10 @@ const WM_KEYUP: u32 = 0x0101;
 const WM_SYSKEYDOWN: u32 = 0x0104;
 const WM_SYSKEYUP: u32 = 0x0105;
 // 鼠标低层钩子的消息
-// (左/右键的 WM_LBUTTON*/WM_RBUTTON* 曾是死常量,2026-10-31 体检清掉 —— 本文件只处理
-//  可作为热键的三种按下:中键与侧键 X1/X2。)
+// (可作为热键的只有三种:中键与侧键 X1/X2。左/右键本身不是热键,但**用户自己点一下**
+//  也算"动手了"——见 `mark_user_input`。)
+const WM_LBUTTONDOWN: u32 = 0x0201;
+const WM_RBUTTONDOWN: u32 = 0x0204;
 const WM_MBUTTONDOWN: u32 = 0x0207;
 const WM_MBUTTONUP: u32 = 0x0208;
 const WM_XBUTTONDOWN: u32 = 0x020B;
@@ -180,6 +182,48 @@ const KIND_MOUSE_MIDDLE: u32 = 3;
 /// 键盘钩子和鼠标钩子**共用这一个闩**：同一时刻只有一个热键生效，
 /// 所以两边的按下/抬起不能各记各的，否则换键时状态会对不上。
 static KEY_DOWN: AtomicBool = AtomicBool::new(false);
+
+/// 低级钩子里「这一下是我们自己注入的」标记(系统给的,不靠猜)。
+/// 键盘:`KBDLLHOOKSTRUCT.flags & LLKHF_INJECTED`;鼠标:`MSLLHOOKSTRUCT.flags & LLMHF_INJECTED`。
+const LLKHF_INJECTED: u32 = 0x10;
+const LLMHF_INJECTED: u32 = 0x01;
+
+/// 用户**真的**动手(键盘/鼠标按键)的时刻,单位毫秒(`input_clock_ms` 那口钟)。
+/// 0 = 进程起来之后还没动过。
+///
+/// 为什么必须记在钩子里:上屏走的是 PostMessage / SendInput,对上层完全可见 ——
+/// 只有低级钩子能分辨"这一下是用户按的还是我们自己打的"(`*_INJECTED` 是系统标记)。
+///
+/// 用途(2026-11-02 用户实测):识别完成之后要补一个句尾空格,而真定稿可能比松手晚
+/// 几百毫秒。用户看到字就马上用方向键挪光标、自己补那个空格 —— 迟到的定稿这时才把
+/// 空格打进去,正好落在他刚挪到的位置上。用户口径:**「我主动按键盘就是打断这个过程」**。
+/// 所以 worker 在松手后的收尾窗口里盯着这个时刻:一旦晚于松手,这一句剩下的注入立刻停手。
+static LAST_USER_INPUT_MS: AtomicU64 = AtomicU64::new(0);
+/// 单调钟原点(`Instant` 塞不进原子量,只存"进程启动以来的毫秒")。
+static INPUT_CLOCK0: OnceLock<std::time::Instant> = OnceLock::new();
+
+/// 钩子那口单调钟的当前值(毫秒)。worker 用同一个口径记"松手时刻"。
+///
+/// ⚠️ 第一次调用会把钟的原点定在那一刻,所以这里**加 1**:否则第一次调用返回 0,
+/// 而 0 是"还没松过手"的哨兵 —— 那一句的收尾护栏会静默失效(2026-11-02 实测踩到:
+/// 第一句的 `start_tick` 是 0,用户动手的判据整条不生效)。
+pub fn input_clock_ms() -> u64 {
+    INPUT_CLOCK0
+        .get_or_init(std::time::Instant::now)
+        .elapsed()
+        .as_millis() as u64
+        + 1
+}
+
+/// 用户最近一次真的动手的时刻(同 `input_clock_ms` 口径);0 = 还没动过。
+pub fn last_user_input_ms() -> u64 {
+    LAST_USER_INPUT_MS.load(Ordering::Relaxed)
+}
+
+/// 记一笔"用户自己按了键"。注入事件不记(见 `LAST_USER_INPUT_MS`)。
+fn mark_user_input() {
+    LAST_USER_INPUT_MS.store(input_clock_ms(), Ordering::Relaxed);
+}
 static HOOK: AtomicIsize = AtomicIsize::new(0);
 static MOUSE_HOOK: AtomicIsize = AtomicIsize::new(0);
 static TX: OnceLock<Mutex<Sender<HookEvent>>> = OnceLock::new();
@@ -368,10 +412,21 @@ struct Msllhookstruct {
 }
 
 unsafe extern "system" fn hook_proc(code: i32, wparam: usize, lparam: isize) -> isize {
-    if code >= 0 && lparam != 0 && TRIGGER_KIND.load(Ordering::Relaxed) == KIND_KEY {
+    if code >= 0 && lparam != 0 {
         let kb = lparam as *const Kbdllhookstruct;
-        if (*kb).vk_code == TRIGGER_VK.load(Ordering::Relaxed) {
-            let eaten = match wparam as u32 {
+        let m = wparam as u32;
+        let is_down = matches!(m, WM_KEYDOWN | WM_SYSKEYDOWN);
+        // 这个键**就是热键**吗?只有"热键是键盘键"时才算 —— 否则 `TRIGGER_VK` 里
+        // 留着的是上一次设过的值,会把那个无辜的键排除掉(它明明也是用户按的)。
+        let is_trigger_key = TRIGGER_KIND.load(Ordering::Relaxed) == KIND_KEY
+            && (*kb).vk_code == TRIGGER_VK.load(Ordering::Relaxed);
+        // 用户自己按了键(不是我们注入的、也不是热键本身)→ 记一笔:
+        // 松手之后的收尾注入(补句尾空格 / 迟到的定稿修正)要据此**立刻停手**。
+        if is_down && (*kb).flags & LLKHF_INJECTED == 0 && !is_trigger_key {
+            mark_user_input();
+        }
+        if is_trigger_key {
+            let eaten = match m {
                 WM_KEYDOWN | WM_SYSKEYDOWN => feed(true),
                 WM_KEYUP | WM_SYSKEYUP => feed(false),
                 _ => false,
@@ -417,6 +472,17 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: usize, lparam: isiz
         if let Some(d) = is_down {
             feed(d);
             return 1; // 吃掉，不让它去触发浏览器前进/后退
+        }
+
+        // 用户自己点了一下(左/右/中/侧键,不是我们注入的):也算"动手了"。
+        // 用鼠标点光标位置和用方向键挪是同一件事 —— 松手后的收尾注入都得停手。
+        if (*ms).flags & LLMHF_INJECTED == 0
+            && matches!(
+                m,
+                WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN | WM_XBUTTONDOWN
+            )
+        {
+            mark_user_input();
         }
     }
     CallNextHookEx(0, code, wparam, lparam)
@@ -595,6 +661,8 @@ pub fn read_guard_flag() -> Option<u8> {
 }
 
 pub fn install(t: Trigger, tx: Sender<HookEvent>) -> Result<()> {
+    // 钟的原点定在"引擎开始听"这一刻 —— 松手时刻和用户动手时刻都按它算
+    INPUT_CLOCK0.get_or_init(std::time::Instant::now);
     set_trigger(t);
     let _ = TX.set(Mutex::new(tx));
     // 记下这个线程 —— 只有它能"卸了再装"(见 HOOK_THREAD 的注释)
@@ -1023,6 +1091,25 @@ mod tests {
         assert_eq!(n_full, 1, "cbSize=40 应当接受(否则自救依然是死的)");
     }
 }
+#[cfg(test)]
+mod user_input_tests {
+    use super::*;
+
+    /// 用户动手的时刻必须记在**同一口单调钟**上:worker 拿"松手时刻"跟它比大小,
+    /// 两边口径不一致就等于这条护栏永远不触发(或者永远误触发)。
+    ///
+    /// 只验记账本身;`*_INJECTED` 过滤在钩子回调里(真按键没法在自动化里造出来 ——
+    /// `SendInput` 造出来的都会被系统标成注入)。
+    #[test]
+    fn user_input_is_recorded_on_the_shared_clock() {
+        let before = input_clock_ms();
+        mark_user_input();
+        let at = last_user_input_ms();
+        assert!(at >= before, "记下的时刻不能比钟还早:{at} < {before}");
+        assert!(input_clock_ms() >= at, "钟只能往前走");
+    }
+}
+
 #[cfg(test)]
 mod guard_tests {
     use super::*;

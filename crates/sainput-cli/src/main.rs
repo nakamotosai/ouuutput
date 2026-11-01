@@ -929,6 +929,12 @@ struct Ui<'a> {
     /// 焦点守卫(体检报告 §4.3):这一句的上屏目标还是不是按下时那个窗口。
     /// false = 已经中止本句注入,**一个字都不许再打**(见 worker 里的复核)。
     focus_ok: bool,
+    /// 用户**自己动手了**(真按了键盘/鼠标键,见 `hotkey::last_user_input_ms`)。
+    /// false = 松手之后剩下的注入一律停手 —— 包括句尾空格和迟到的定稿修正。
+    ///
+    /// 和 `focus_ok` 分开是有意的:那个防的是"打进错的窗口",这个防的是
+    /// "用户已经在改这段字了,别跟他抢光标"。
+    user_ok: bool,
 }
 
 /// 换句收尾。组合态会在这一步把上一版组合串从应用里清掉(它挂着的时候应用是把
@@ -986,6 +992,8 @@ fn handle_msg(m: Msg, wr: &mut inject::StreamWriter, ui: &Ui) -> bool {
     // 返回值 = **这次上屏失败了吗**。组合态失败要退一档重来(见 worker 里的 `tsf_fallback`)。
     let mut failed = false;
     let ms = ui.t0.elapsed().as_millis();
+    // 这一条消息能不能真的往屏幕上打:焦点守卫 + 用户自己动手,任一为否就停手。
+    let inject_ok = ui.focus_ok && ui.user_ok;
     match m {
         Msg::Ready {
             model,
@@ -1006,10 +1014,11 @@ fn handle_msg(m: Msg, wr: &mut inject::StreamWriter, ui: &Ui) -> bool {
             }
             if ui.dry {
                 println!("[{ms:6}ms] partial: {text}   (渲染 {rms:.1}ms | 原文 {raw})");
-            } else if !ui.focus_ok {
-                // 焦点守卫已中止本句:一个字都不再打(见 worker 里的复核)。
+            } else if !inject_ok {
+                // 焦点守卫中止 / 用户已经自己动手:一个字都不再打。
                 // 屏幕上剩下的半句留在**原窗口**,这边不碰新窗口 —— 退格只会删到
-                // 别人(新窗口)自己的内容。
+                // 别人(新窗口)自己的内容;而用户动手之后,光标可能已经被他挪走,
+                // 这时再补尾巴/补空格就是**插到他的新位置**上(2026-11-02 实测)。
             } else {
                 // 只有「细条」模式才用文字更新悬浮窗；球模式保持球（波形照走）。
                 if overlay_mode() == 1 {
@@ -1037,11 +1046,16 @@ fn handle_msg(m: Msg, wr: &mut inject::StreamWriter, ui: &Ui) -> bool {
                 if raw != text {
                     println!("[{ms:6}ms]   ASR 原文: {raw}");
                 }
-            } else if !ui.focus_ok {
-                // 焦点守卫已中止本句:定稿也不打了(复核由 worker 做,这里只是执行)。
-                // 留一行回执 —— 用户得知道「刚才那句话为什么没上屏」。
+            } else if !inject_ok {
+                // 焦点守卫中止 / 用户已经自己动手:剩下的不再上屏。
+                // 留一行回执 —— 用户得知道「刚才那句话为什么没打完」。
                 if !text.is_empty() {
-                    println!("[sainput] ✗ {} {} —— 焦点已变,本句未上屏", reason, clip(&text, 40));
+                    println!(
+                        "[sainput] ✗ {} {} —— {},剩下的不再上屏",
+                        reason,
+                        clip(&text, 40),
+                        if !ui.user_ok { "你已经自己动手了" } else { "焦点已变" }
+                    );
                 }
             } else {
                 // 空 final 绝不能当成「把屏幕清掉」——只更新内部状态。
@@ -1151,7 +1165,7 @@ fn cmd_replay(args: &[String], a: &Args) -> Result<()> {
         side.send_audio(chunk)?;
         side.drain(&mut buf);
         for m in buf.drain(..) {
-            let ui = Ui { log: None, dry, max_bs, t0, focus_ok: true };
+            let ui = Ui { log: None, dry, max_bs, t0, focus_ok: true, user_ok: true };
             handle_msg(m, &mut wr, &ui);
         }
         // 按采样的真实节奏喂（半速，够逼近实时又不至于太慢）
@@ -1168,7 +1182,7 @@ fn cmd_replay(args: &[String], a: &Args) -> Result<()> {
                 // 只看 final 决定结束
             }
             let is_final = matches!(m, Msg::Final { .. });
-            let ui = Ui { log: None, dry, max_bs, t0, focus_ok: true };
+            let ui = Ui { log: None, dry, max_bs, t0, focus_ok: true, user_ok: true };
             handle_msg(m, &mut wr, &ui);
             if is_final {
                 got_final = true;
@@ -1574,6 +1588,9 @@ enum Stage {
 /// 松键之后仍然在往模型里喂音频的那一小段时间。
 struct Tail {
     start: Instant,
+    /// 松手时刻,`hotkey::input_clock_ms` 那口钟的口径 —— 和钩子记的"用户动手时刻"
+    /// 必须同源才能比大小(见 worker 里 `user_interrupted`)。
+    start_tick: u64,
     /// 到点之后才允许因为「已经安静了」提前结束。
     until_min: Instant,
     /// 硬上限。
@@ -1757,6 +1774,7 @@ fn begin_tail(tail: &mut Option<Tail>, o: &RunOpts) {
     let now = Instant::now();
     *tail = Some(Tail {
         start: now,
+        start_tick: hotkey::input_clock_ms(),
         until_min: now + Duration::from_millis(c.min_ms as u64),
         until_max: now + Duration::from_millis(c.max_ms.max(c.min_ms) as u64),
         quiet: 0.0,
@@ -2017,6 +2035,23 @@ fn worker(
         .ok()
         .and_then(|s| s.trim().parse().ok());
     let mut focus_lost = false;
+    // 用户自己动手了(真的按了键盘/鼠标键)= 这一句**剩下的注入立刻停手**。
+    //
+    // 为什么(2026-11-02 用户实测):识别完成之后要补一个句尾空格,而真定稿可能比松手
+    // 晚几百毫秒。用户看到字就马上用方向键挪光标、自己补那个空格 —— 迟到的定稿这时
+    // 才把空格打进去,正好落在他刚挪到的位置(更糟的是修正会退格到他刚打的字上)。
+    // 用户口径:**「我主动按键盘就是打断这个过程」**。
+    //
+    // 判据在钩子里(`hotkey::last_user_input_ms`,注入事件不算),这里只做比较。
+    let mut user_interrupted = false;
+    // 松手时刻(钩子那口钟)。尾巴还在跑时从 `tail.start_tick` 取,尾巴收完用这个。
+    let mut released_tick: u64 = 0;
+    // 【回归专用】`SAINPUT_DIAG_FAKE_KEY_AFTER_MS=300`:松手 300ms 后假装用户按了一次键。
+    // 真按键在自动化里造不出来(SendInput 出来的都被系统标成"注入",钩子会正确忽略),
+    // 所以这条护栏的 worker 侧只能靠这个钩子验。
+    let diag_key_after: Option<u64> = std::env::var("SAINPUT_DIAG_FAKE_KEY_AFTER_MS")
+        .ok()
+        .and_then(|s| s.trim().parse().ok());
 
     // 默认常驻预热：否则「按下热键 → 开麦」要 100ms 左右，第一个字会被吞掉。
     // feed 模式不需要麦克风，直接跳过。
@@ -2268,6 +2303,9 @@ fn worker(
                     }
                     stage = Stage::Recording;
                     finalized = false;
+                    // 新一句:打断状态归零(上一句的"用户动手"不能带过来)
+                    user_interrupted = false;
+                    released_tick = 0;
                     // 新的一句:上限重新起算,上一句的 partial 不能带过来定稿。
                     await_since = None;
                     last_partial = None;
@@ -2417,6 +2455,7 @@ fn worker(
             if finished {
                 if let Some(t) = tail.take() {
                     released_at = Some(t.start);
+                    released_tick = t.start_tick;
                     report_tail(
                         &o,
                         &t,
@@ -2603,6 +2642,33 @@ fn worker(
             await_since = None;
         }
 
+        // 2.9) 用户自己动手了 → 这一句剩下的注入立刻停手。
+        //
+        // 只盯**松手之后**这段收尾窗口(尾巴 + 等定稿):句尾空格、迟到的定稿修正
+        // 都落在这里。用户按下热键开始新一句时 `released_tick` 归零,不会误伤。
+        // 注入事件不算(`hotkey::last_user_input_ms` 只记真的按键/点击)。
+        if !user_interrupted && stage != Stage::Idle {
+            let rel_tick = tail.as_ref().map(|t| t.start_tick).unwrap_or(released_tick);
+            let diag_fired = diag_key_after
+                .is_some_and(|ms| rel_tick != 0 && hotkey::input_clock_ms() >= rel_tick + ms);
+            if rel_tick != 0 && (hotkey::last_user_input_ms() > rel_tick || diag_fired) {
+                user_interrupted = true;
+                // 组合态:这一版已经显示出来了,交出去(不然它一直占着应用的按键处理);
+                // 按键模式:什么都不做 —— 那些字是真按键打进去的,本来就在屏幕上。
+                if let Err(e) = wr.commit_shown() {
+                    if let Some(l) = &o.log {
+                        l.line(&format!("! 提交已显示的组合串失败: {e}"));
+                    }
+                    eprintln!("[inject] 提交组合串失败: {e}");
+                }
+                let line = "[sainput] ✋ 你已经自己动手(键盘/鼠标)→ 这一句剩下的注入立刻停手;屏幕上已有的字不动,迟到的定稿/句尾空格不再补".to_string();
+                println!("{line}");
+                if let Some(l) = &o.log {
+                    l.line(&format!("! {line}"));
+                }
+            }
+        }
+
         side.drain(&mut buf);
         for m in buf.drain(..) {
             // 空闲状态下迟到的东西一律丢掉(别把已经上屏的字擦掉、也别让
@@ -2680,6 +2746,7 @@ fn worker(
                 max_bs: o.max_backspace,
                 t0,
                 focus_ok: !focus_lost,
+                user_ok: !user_interrupted,
             };
             if let Msg::Partial { text, raw, .. } = &m {
                 last_text_at = Instant::now();

@@ -31,7 +31,7 @@ DIRS = ["target-test/x86_64-pc-windows-gnu/release", "target-test/release",
 DESKTOP = "SAI-RaceGuards"
 NS = "sainput-racetest"
 ENV_KEYS = ("SAINPUT_SINGLE_NS", "SAINPUT_DIAG_AUTOSTART", "FAKE_ASR_SCRIPT",
-            "SAINPUT_DIAG_TARGET_HWND")
+            "SAINPUT_DIAG_TARGET_HWND", "SAINPUT_DIAG_FAKE_KEY_AFTER_MS")
 
 
 def find(rel, what):
@@ -76,8 +76,11 @@ def make_wav(path):
     return path
 
 
-def run_case(host, sainput, wav, script, expect, settle=7.0):
-    """起宿主(靶子)→ 起引擎(假侧车脚本)→ 读回断言 → 收摊。"""
+def run_case(host, sainput, wav, script, expect, settle=7.0, extra_env=None):
+    """起宿主(靶子)→ 起引擎(假侧车脚本)→ 读回断言 → 收摊。
+
+    `extra_env`:本用例额外要带的环境变量(例如诊断用的"假装用户按了键")。
+    """
     h = hdesk.open_desktop(DESKTOP)
     saved = {k: os.environ.get(k) for k in ENV_KEYS}
     hh = hp = None
@@ -87,6 +90,8 @@ def run_case(host, sainput, wav, script, expect, settle=7.0):
         os.environ["SAINPUT_SINGLE_NS"] = NS
         os.environ["SAINPUT_DIAG_AUTOSTART"] = "1200"  # 进程内部触发热键,不合成按键
         os.environ["FAKE_ASR_SCRIPT"] = script
+        for k, v in (extra_env or {}).items():
+            os.environ[k] = v
 
         hh, ht, hpid = hdesk.launch(
             str(host), f"--life 40000 --log {REPO / 'tmp' / 'race-host.log'}", DESKTOP)
@@ -239,6 +244,15 @@ def main():
         ("重复定稿不打两遍(T4.1)",
          "w:400;p:一句话;w:200;f:一句话:finish;w:500;f:一句话:finish;w:400",
          "一句话"),
+        # 2026-11-02 用户报的「我挪光标补空格时,它才把空格插进来」:
+        # 松手之后**用户自己按键盘/点鼠标** = 打断。这里用诊断钩子在松手 300ms 后
+        # 假装按了一次键;2 秒后才到的定稿必须一个字都不打,屏幕上只留流式那一版。
+        ("用户自己动手 → 迟到的定稿不再注入",
+         "p:你好;w:2000;f:你好世界:finish", "你好",
+         {"SAINPUT_DIAG_FAKE_KEY_AFTER_MS": "300"}),
+        # 对照组:没动手时,同一条定稿必须照常补上 —— 否则上一条就是"永远绿的"
+        ("对照组:没动手 → 迟到的定稿照常补上",
+         "p:你好;w:2000;f:你好世界:finish", "你好世界", None),
     ]
     # T4.3:中途切窗口 —— 守卫开时必须拦住,关时必须能复现(对照组)
     for guard, name in ((True, "焦点变更中止本句(T4.3,守卫开)"),
@@ -249,11 +263,12 @@ def main():
             cases.append((name, None, None))
 
     fails = []
-    for name, script, expect in cases:
+    for name, script, expect, *rest in cases:
         if script is None:
             fails.append(name)
             continue
-        ok, detail = run_case(host, sainput, wav, script, expect)
+        extra_env = rest[0] if rest else None
+        ok, detail = run_case(host, sainput, wav, script, expect, extra_env=extra_env)
         print(f"[{'PASS' if ok else 'FAIL'}] {name}: {detail}")
         if not ok:
             fails.append(name)

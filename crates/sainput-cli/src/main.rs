@@ -1046,11 +1046,27 @@ fn handle_msg(m: Msg, wr: &mut inject::StreamWriter, ui: &Ui) -> bool {
             } else {
                 // 空 final 绝不能当成「把屏幕清掉」——只更新内部状态。
                 // 组合态是例外:它本来就还没上屏,挂着不放会卡住那边的按键。
+                // **但已经显示出来的那一版要提交,不许丢**(2026-11-02 用户要求):
+                // 识别报错/空定稿时,屏幕上看得见的字就是用户已经拿到的东西。
                 if text.is_empty() {
-                    wr.cancel_buffer();
+                    if let Err(e) = wr.commit_shown() {
+                        if let Some(l) = ui.log {
+                            l.line(&format!("! 提交已显示的组合串失败: {e}"));
+                        }
+                        eprintln!("[inject] 提交组合串失败: {e}");
+                        failed = true;
+                    }
                 }
                 if !text.is_empty() {
-                    if let Err(e) = wr.finalize(&text, ui.max_bs * 4) {
+                    // 收尾上限(`cap`)走 `finalize_capped`:按键模式和 finalize 一样
+                    // (晚到的真定稿还能补尾巴);组合态则提交后**锁住这一句**,
+                    // 迟到的真定稿不再提交(否则同一句在应用里出现两遍)。
+                    let r = if reason == "cap" {
+                        wr.finalize_capped(&text, ui.max_bs * 4)
+                    } else {
+                        wr.finalize(&text, ui.max_bs * 4)
+                    };
+                    if let Err(e) = r {
                         if let Some(l) = ui.log {
                             l.line(&format!("! final 上屏失败: {e}"));
                         }
@@ -1086,8 +1102,14 @@ fn handle_msg(m: Msg, wr: &mut inject::StreamWriter, ui: &Ui) -> bool {
         Msg::Rendered { .. } => {}
         Msg::ResetAck => {}
         Msg::Error { msg } => {
-            // 识别这一句失败了、也不会有 final:组合态必须现在收掉(见 cancel_buffer)。
-            wr.cancel_buffer();
+            // 识别这一句失败了、也不会有 final:组合态必须现在收掉 —— 但**提交**
+            // 已经显示出来的那一版,不许把它丢掉(2026-11-02 用户要求)。
+            if let Err(e) = wr.commit_shown() {
+                if let Some(l) = ui.log {
+                    l.line(&format!("! 提交已显示的组合串失败: {e}"));
+                }
+                eprintln!("[inject] 提交组合串失败: {e}");
+            }
             eprintln!("[asr] 错误: {msg}");
         }
     }
@@ -2022,7 +2044,13 @@ fn worker(
             tail = None;
             defer_reset = false;
             focus_lost = true; // 这一句作废:别再往任何窗口补字
-            wr.cancel_buffer();
+            // 但**已经显示出来的那一版要交出去**(组合态),不许随着引擎一起消失
+            if let Err(e) = wr.commit_shown() {
+                if let Some(l) = &o.log {
+                    l.line(&format!("! 提交已显示的组合串失败: {e}"));
+                }
+                eprintln!("[inject] 提交组合串失败: {e}");
+            }
             // 采集会话丢掉:留着它下次按下会立刻读到一条死流(和设备断开同一个坑)
             cap = None;
             ov_hide(&o.overlay);
@@ -2433,15 +2461,18 @@ fn worker(
             // 只在上限到点、**且手上真有一版非空文字**时才动手 —— 没有文字可上屏时
             // 触发等于白打一枪(还可能把这一句弄脏),宁可继续等。
             //
-            // 为什么**排除组合态(`is_compose`)**:那条路 `finalize` 是"整段一次提交",
-            // 同一句提交两次会在应用里出现两遍;而真 final 马上就到,不值得为几百毫秒
-            // 冒重字的险。关键模式(`WmChar`/`SendInput`/`TSF`)走的是**差额补打**
-            // (见 inject.rs `finalize`:common_prefix + 只打尾巴),先打一版再补尾巴是安全的。
+            // 组合态(`Pebrel`/`TSF`)现在也走上限:那条路是"整段一次提交",等真 final
+            // 等不到的时候,不提交就等于**整句都不上屏**(还会把应用的按键一直让给
+            // 那条挂着的组合串)。所以上限到点就提交当前这一版,并由
+            // `finalize_capped` 把这一句**锁上** —— 迟到的真定稿不会再提交一遍
+            // (整段一次写入,再提交就是应用里出现两遍,2026-11-01 实测)。
+            // 关键模式(`WmChar`/`SendInput`)仍走**差额补打**,先打一版再补尾巴是安全的。
             //
-            // 定稿走的是和真 final **完全相同**的那条路:塞进 `buf`,由下面 3) 的
-            // 处理块落地 —— T4.1/T4.2 的守卫(定稿后不认迟到帧、不重复上屏)全都在那边,
-            // 超出 max_bs 时整笔放弃的账实一致保护也在那边。
-            if !cap_fired && final_wait_ms > 0 && !wr.mode().is_compose() {
+            // 上限到点后塞进 `buf` 的这条 `Msg::Final{reason:"cap"}` 走下面 3) 的
+            // 处理块落地:T4.1/T4.2 的守卫(定稿后不认迟到帧、不重复上屏)全都在那边,
+            // 超出 max_bs 时整笔放弃的账实一致保护也在那边;组合态的"提交后锁句"
+            // 在 `StreamWriter::finalize_capped` 里。
+            if !cap_fired && final_wait_ms > 0 {
                 if let Some(since) = await_since {
                     let waited = since.elapsed().as_millis();
                     if waited >= final_wait_ms {
@@ -2450,12 +2481,12 @@ fn worker(
                             cap_waited = Some(waited);
                             if let Some(l) = o.log.as_ref() {
                                 l.line(&format!(
-                                    "! 收尾硬上限 {}ms 到点(实际等 {}ms)→ 先把当前最好的一版打上屏(reason=cap,真 final 到了再补)",
+                                    "! 收尾硬上限 {}ms 到点(实际等 {}ms)→ 先把当前最好的一版打上屏(reason=cap;按键模式晚到的定稿再补尾巴,组合态这一版就是提交)",
                                     final_wait_ms, waited
                                 ));
                             }
                             println!(
-                                "[sainput] ⏱ 等定稿超过 {}ms,先把现在的文字打上屏(真定稿到了再补尾巴)",
+                                "[sainput] ⏱ 等定稿超过 {}ms,先把现在的文字打上屏(按键模式:晚到的定稿再补尾巴;组合态:这一版就是提交)",
                                 final_wait_ms
                             );
                             buf.push(Msg::Final { text, raw, reason: "cap".into() });
@@ -2538,11 +2569,18 @@ fn worker(
             let cur = inject::focused_window();
             if cur != guard_hwnd {
                 focus_lost = true;
-                // 组合态:整句还挂在应用自己的组合串里(一个字节都没上屏),
-                // 所以可以直接把它收掉;键盘注入路已经打到**原窗口**上的字**不能**退 ——
-                // 退格打在**当前**窗口上,删的是别人的内容。那条路只做「不再继续注入」。
+                // 组合态:整句还挂在应用自己的组合串里(一个字节都没上屏)——
+                // **提交它**,落到那一句原本的目标窗口里(看得见、能删,不是执行);
+                // 丢掉就等于用户说了一半的字凭空消失(2026-11-02 用户明确反对)。
+                // 键盘注入路已经打到**原窗口**上的字**不能**退 —— 退格打在**当前**
+                // 窗口上,删的是别人的内容。那条路只做「不再继续注入」。
                 if !o.dry {
-                    wr.cancel_buffer();
+                    if let Err(e) = wr.commit_shown() {
+                        if let Some(l) = &o.log {
+                            l.line(&format!("! 提交已显示的组合串失败: {e}"));
+                        }
+                        eprintln!("[inject] 提交组合串失败: {e}");
+                    }
                 }
                 let line = format!(
                     "[sainput] ⚠ 说话期间前台窗口变了(0x{guard_hwnd:X} → 0x{cur:X})→ 本句中止注入,不再往新窗口里打字{}\

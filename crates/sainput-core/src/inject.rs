@@ -1144,36 +1144,83 @@ mod tests {
         assert_eq!(rec.commits().len(), 1, "重复 final 不许重复提交(等于说了一遍进去两遍)");
     }
 
-    /// 流水线中途结束(识别报错 / 空定稿)时也要收掉组合态,但不能动记账。
+    /// 流水线中途结束(识别报错 / 空定稿 / 侧车挂了)时:**把已经显示出来的那一版
+    /// 提交掉**,不许丢(2026-11-02 用户明确要求)。按键模式什么都不做。
     #[test]
-    fn cancel_buffer_only_drops_the_composition() {
+    fn commit_shown_keeps_what_the_user_already_saw() {
         let mut w = StreamWriter::new(8, true);
         let rec = Recorder::default();
         w.set_mode(KeyMode::Pebrel);
         w.set_composer(Some(Box::new(rec.clone())));
         w.update("还没说完就被打断的一句").unwrap();
-        w.cancel_buffer();
-        assert_eq!(rec.calls().last().map(String::as_str), Some(""), "组合态要被收掉");
-        // 按键模式的记账不许被这条路径碰到
+        w.commit_shown().unwrap();
+        assert_eq!(rec.commits(), vec!["还没说完就被打断的一句"], "已显示的组合串要提交,不许丢");
+        assert_eq!(w.injected, "还没说完就被打断的一句");
+        assert_eq!(w.typed_chars, "还没说完就被打断的一句".chars().count());
+        // 提交过之后:迟到的 partial / 定稿都不许再改屏幕(组合态没有差额补打)
+        w.update("迟到的帧").unwrap();
+        assert_eq!(rec.calls(), vec!["还没说完就被打断的一句"], "迟到帧不许再开组合串");
+        w.finalize("迟到的定稿", 32).unwrap();
+        assert_eq!(rec.commits().len(), 1, "迟到的定稿不许再提交一遍");
+        // 按键模式:这条路径什么都不做(字是真按键打的,本来就在屏幕上)
         w.set_mode(KeyMode::Keys);
         w.injected = "屏幕上已经有的一句".into();
-        w.cancel_buffer();
-        assert_eq!(w.injected, "屏幕上已经有的一句", "取消组合态不许动按键模式的记账");
-        assert_eq!(rec.calls().len(), 2, "没有挂着的组合串时不再多发");
+        w.commit_shown().unwrap();
+        assert_eq!(w.injected, "屏幕上已经有的一句", "按键模式不许动记账");
+        assert_eq!(rec.calls().len(), 1);
     }
 
-    /// 换句必须把上一版组合串从应用里清掉:它挂着的时候,应用是把按键让给它的。
+    /// 换句时组合串还挂着 = 上一句没有正常定稿(定稿迟到 / 卡住 / 报错):
+    /// **提交它**,不许把用户已经看见的字丢掉;提交锁不能带到下一句。
     #[test]
-    fn compose_mode_cancels_the_buffer_on_reset() {
+    fn compose_mode_commits_the_buffer_on_reset() {
         let mut w = StreamWriter::new(8, true);
         let rec = Recorder::default();
         w.set_mode(KeyMode::Pebrel);
         w.set_composer(Some(Box::new(rec.clone())));
         w.update("还没说完的一句").unwrap();
         w.reset().unwrap();
-        assert_eq!(rec.calls(), vec!["还没说完的一句", ""], "换句 = 清掉缓冲层");
+        assert_eq!(rec.calls(), vec!["还没说完的一句"], "换句不再发『清空组合串』");
+        assert_eq!(rec.commits(), vec!["还没说完的一句"], "挂着的这一版要提交进应用");
+        assert_eq!(w.injected, "", "换句后记账归零(新一句从干净的账开始)");
         w.reset().unwrap();
-        assert_eq!(rec.calls().len(), 2, "没有挂着的组合串时不多发一条");
+        assert_eq!(rec.calls().len(), 1, "没有挂着的组合串时不多发一条");
+        assert_eq!(rec.commits().len(), 1);
+    }
+
+    /// 收尾上限到点(组合态):提交当前这一版并锁上这一句 —— 迟到的真定稿不许再提交
+    /// 一遍(整段一次写入,再提交就是两遍);换句后锁要清掉,下一句照常提交。
+    #[test]
+    fn compose_cap_commits_once_and_locks_the_sentence() {
+        let mut w = StreamWriter::new(8, true);
+        let rec = Recorder::default();
+        w.set_mode(KeyMode::Pebrel);
+        w.set_composer(Some(Box::new(rec.clone())));
+        w.update("说到一半的一句").unwrap();
+        w.finalize_capped("说到一半的一句", 32).unwrap();
+        assert_eq!(rec.commits(), vec!["说到一半的一句"], "上限到点先把已显示的这一版交出去");
+        w.update("迟到的帧").unwrap();
+        assert_eq!(rec.calls().len(), 1, "提交后不许再开组合串");
+        w.finalize("说到一半的一句(修正版)", 32).unwrap();
+        assert_eq!(rec.commits().len(), 1, "迟到的真定稿不许再提交");
+        // 换句:锁清掉,下一句照常
+        w.reset().unwrap();
+        w.update("下一句").unwrap();
+        w.finalize("下一句", 32).unwrap();
+        assert_eq!(rec.commits(), vec!["说到一半的一句", "下一句"]);
+    }
+
+    /// 按键模式的收尾上限**不锁**:晚到的真定稿还要靠差额补打把最后几个字补上。
+    #[test]
+    fn key_mode_cap_still_allows_a_late_final() {
+        let mut w = StreamWriter::new(8, true);
+        w.set_mode(KeyMode::WmChar(0));
+        w.update("说到一半").unwrap();
+        w.finalize_capped("说到一半", 32).unwrap();
+        assert_eq!(w.injected, "说到一半");
+        w.finalize("说到一半的一句", 32).unwrap();
+        assert_eq!(w.injected, "说到一半的一句", "按键模式晚到的定稿必须能补尾巴");
+        assert_eq!(w.backspaces, 0);
     }
 
 }
@@ -1234,6 +1281,12 @@ pub struct StreamWriter {
     /// 重打（十几毫秒的事），屏幕永远跟得上；模型要是每拍都在来回改，这条线保证
     /// 不会每拍都重打整句。
     big_resync_at: Option<std::time::Instant>,
+    /// 这一句已经**提交过**组合串(收尾上限到点,或收尾兜底 `commit_shown`)。
+    ///
+    /// 组合态是「整段一次写入」,没有差额补打 —— 提交过一次之后再提交一次,应用里就是
+    /// 同一句出现两遍(2026-11-01 实测)。所以提交之后:迟到的 partial 不再改组合串、
+    /// 迟到的真定稿也不再提交(它的字用户已经看见了);`reset()` 换句时清掉。
+    compose_committed: bool,
 }
 
 impl StreamWriter {
@@ -1250,6 +1303,7 @@ impl StreamWriter {
             typed_chars: 0,
             backspaces: 0,
             big_resync_at: None,
+            compose_committed: false,
         }
     }
 
@@ -1283,11 +1337,6 @@ impl StreamWriter {
         self.composer = composer;
     }
 
-    /// 只收组合态:**不碰** `injected` 记账。
-    ///
-    /// 用在「这一句没有定稿,但流水线已经结束」的路径上(识别报错、空定稿):
-    /// 组合串挂在应用里的时候,那边是把按键让给它的 —— 留着不放,用户会觉得
-    /// 键盘坏了。丢掉的只是「应用里还没提交的那一版」,屏幕上真正上过的东西不动。
     /// 收回已经上屏的 `n` 个字符(T5.2「收回上一句」)。
     ///
     /// 走 `backspace_with` —— **按本句当初用的那条通道退格**(Keys 走 SendInput、
@@ -1306,38 +1355,74 @@ impl StreamWriter {
         Ok(())
     }
 
-    pub fn cancel_buffer(&mut self) {
-        if self.composed.is_empty() {
-            return;
+    /// 把**已经显示出来的这一版**提交掉 —— 组合态的收尾兜底。
+    ///
+    /// 用在所有「这一句没有正常定稿」的收尾路径上:识别报错、空定稿、侧车挂了、
+    /// 焦点守卫中止、换句时还挂着组合串。用户已经看见的字不许凭空消失
+    /// (2026-11-02 用户明确要求:不要完全丢弃的方案)。
+    ///
+    /// 按键模式什么都不做:那些字是**真按键**打进去的,本来就在屏幕上。
+    pub fn commit_shown(&mut self) -> Result<()> {
+        if !self.mode.is_compose() || self.composed.is_empty() {
+            return Ok(());
         }
-        self.composed.clear();
-        if let Some(composer) = self.composer.as_mut() {
-            // 取消失败没有第二个补救动作(下一句开始时 reset 还会清一次),
-            // 所以这里只记一笔,不把整条路径判成失败。
-            if let Err(e) = composer.set("") {
-                eprintln!("[inject] 取消组合态失败: {e}");
+        self.commit_composed()?;
+        // 组合态没有差额补打:这一句已经落进应用,迟到的 partial / 定稿不许再改一遍
+        self.compose_committed = true;
+        Ok(())
+    }
+
+    /// 提交组合串(不碰提交锁)。`reset` 换句时用它 —— 那时锁属于上一句,不该带到下一句。
+    fn commit_composed(&mut self) -> Result<()> {
+        if self.composed.is_empty() {
+            return Ok(());
+        }
+        let text = std::mem::take(&mut self.composed);
+        let Some(composer) = self.composer.as_mut() else {
+            // 传输层已经被换掉(组合态失败后已退档到按键通道):这一版已经由那条路打出去了,
+            // 没有组合串可提交,别把文本留在状态里。
+            return Ok(());
+        };
+        match composer.commit(&text) {
+            Ok(()) => {
+                self.typed_chars += text.chars().count();
+                self.injected = text;
+                Ok(())
+            }
+            Err(e) => {
+                // 提交失败:文本放回去,下一次收尾(reset)还能再试一次 —— 丢掉就真没了
+                self.composed = text;
+                Err(e)
             }
         }
     }
 
+    /// 收尾硬上限到点时的定稿。
+    ///
+    /// 按键模式和 `finalize` 完全一样(晚到的真定稿还能差额补打尾巴);
+    /// 组合态则**提交这一版并把这一句锁上** —— 它是整段一次写入,再提交一次就是两遍
+    /// (2026-11-01 实测)。锁由 `reset` 在换句时清掉。
+    pub fn finalize_capped(&mut self, target: &str, max_bs: usize) -> Result<()> {
+        let r = self.finalize(target, max_bs);
+        if r.is_ok() && self.mode.is_compose() && self.composed.is_empty() {
+            self.compose_committed = true;
+        }
+        r
+    }
 
     pub fn reset(&mut self) -> Result<()> {
+        // 换句时组合串还挂着 = 上一句没有正常定稿(定稿迟到 / 卡住 / 报错)。
+        // **提交它**,不许把用户已经看见的字丢掉。
+        let flushed = self.commit_composed();
         self.injected.clear();
         // 前缀属于"这一句"的决策,换句要重新决定(光标位置可能已经变了)
         self.prefix.clear();
         self.trailing_space = false;
         // 限频钟也是"这一句"的状态:下一句的第一笔大改动必须立刻生效
         self.big_resync_at = None;
-        if self.composed.is_empty() {
-            return Ok(());
-        }
-        // 组合串挂在应用自己的输入缓冲里,而这期间应用的按键处理是让位给它的;
-        // 留着等于替用户按住了一个看不见的输入框。
-        self.composed.clear();
-        if let Some(composer) = self.composer.as_mut() {
-            composer.set("")?;
-        }
-        Ok(())
+        // 提交锁只属于上一句
+        self.compose_committed = false;
+        flushed
     }
 
     pub fn enabled(&self) -> bool {
@@ -1384,6 +1469,11 @@ impl StreamWriter {
     /// 「消息通道 vs 键盘通道抢先后」的问题。代价:这类窗口里没有逐字上屏。
     pub fn update(&mut self, target: &str) -> Result<()> {
         if self.mode.is_compose() {
+            if self.compose_committed {
+                // 这一句已经按收尾上限/兜底提交过:迟到帧不许再开一条组合串,
+                // 否则屏幕上会多出一段没人收的 preedit,下一句 reset 一提交就是两遍
+                return Ok(());
+            }
             // 组合态:**整体替换**缓冲层,没有退格算术 —— 因为一个字节都还没上屏。
             // 这正是「边说边改」在终端里能做到的形态:应用自己那层 preedit 可以随便
             // 改写,屏幕(和 shell 历史)不会经过任何中间态。
@@ -1473,6 +1563,10 @@ impl StreamWriter {
     ///
     /// 走和 `update` **完全相同**的前缀算术（含 `prefix`），否则屏幕与 `injected` 会错位。
     pub fn finalize(&mut self, target: &str, max_bs: usize) -> Result<()> {
+        if self.mode.is_compose() && self.compose_committed {
+            // 这一句已经按收尾上限/兜底提交过:再提交一次 = 应用里同一句出现两遍
+            return Ok(());
+        }
         let want = self.want(target, true);
         if !self.enabled {
             // `--no-stream`:不流式,**松手定稿时整句一次性投递**(体检报告 §7-7)。

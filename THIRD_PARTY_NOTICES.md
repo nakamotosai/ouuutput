@@ -1,6 +1,6 @@
 # 第三方组件与模型许可
 
-`sainput` 本体以 MIT 许可发布（见 [`LICENSE`](LICENSE)）。本文列出运行期依赖的第三方组件
+`ouuutput` 本体以 MIT 许可发布（见 [`LICENSE`](LICENSE)）。本文列出运行期依赖的第三方组件
 与可配合使用的模型，以及各自的许可状态。
 
 > **本仓库不分发任何模型权重。** `models/` 在 `.gitignore` 中，模型由用户用

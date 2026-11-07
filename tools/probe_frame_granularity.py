@@ -9,11 +9,11 @@
 
 跑法(每次一个全新进程 = 一句,避免进程间噪声混进来):
     python tools/probe_frame_granularity.py --label 32ms
-    # 改 crates/sainput-core/src/audio.rs 的 FRAME_MS=16 并重建后:
+    # 改 crates/ouuutput-core/src/audio.rs 的 FRAME_MS=16 并重建后:
     python tools/probe_frame_granularity.py --label 16ms
 结果是 tmp/probe-frame-<label>.json,拿两份对比。
 
-⚠️ 引擎跑在**私有桌面**上,不打扰当前窗口;用 `SAINPUT_SINGLE_NS` 隔离,
+⚠️ 引擎跑在**私有桌面**上,不打扰当前窗口;用 `OUUUTPUT_SINGLE_NS` 隔离,
    绝不会接管你正在用的那个实例。
 """
 import argparse
@@ -30,9 +30,9 @@ import hdesk  # noqa: E402
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 DESKTOP = "SAI-FrameGranularity"
-NS = "sainput-frameab"
+NS = "ouuutput-frameab"
 WAV = REPO / "models/sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23/test_wavs/0.wav"
-ENV_KEYS = ("SAINPUT_SINGLE_NS", "SAINPUT_DIAG_AUTOSTART", "SAINPUT_DIAG_TARGET_HWND")
+ENV_KEYS = ("OUUUTPUT_SINGLE_NS", "OUUUTPUT_DIAG_AUTOSTART", "OUUUTPUT_DIAG_TARGET_HWND")
 P_RE = re.compile(r"^P\s+(\d+)ms\s+(.*?)\s+\[raw\]\s+(.*?)\s+\(([\d.]+)ms\)\s*$")
 
 
@@ -44,15 +44,15 @@ def first(cands, what):
     sys.exit(2)
 
 
-def one_run(sainput, host, wav, run_idx, release_at):
+def one_run(ouuutput, host, wav, run_idx, release_at):
     """跑一句,返回 (首字延迟ms, 解码耗时列表, 秒数)。"""
     h = hdesk.open_desktop(DESKTOP)
     saved = {k: os.environ.get(k) for k in ENV_KEYS}
     hh = hp = None
     hpid = epid = 0
     try:
-        os.environ["SAINPUT_SINGLE_NS"] = NS
-        os.environ["SAINPUT_DIAG_AUTOSTART"] = "1500"  # 进程内触发热键,不合成按键
+        os.environ["OUUUTPUT_SINGLE_NS"] = NS
+        os.environ["OUUUTPUT_DIAG_AUTOSTART"] = "1500"  # 进程内触发热键,不合成按键
         hh, ht, hpid = hdesk.launch(
             str(host), f"--life 60000 --log {REPO / 'tmp' / 'framehost.log'}", DESKTOP)
         edit = None
@@ -64,13 +64,13 @@ def one_run(sainput, host, wav, run_idx, release_at):
             time.sleep(0.2)
         if not edit:
             raise RuntimeError("宿主窗口没起来")
-        os.environ["SAINPUT_DIAG_TARGET_HWND"] = hex(edit)
+        os.environ["OUUUTPUT_DIAG_TARGET_HWND"] = hex(edit)
 
         # 引擎的会话日志是它自己命名写进 logs/ 的(`--log` 不改变它),
         # 所以用"启动前/后差集"认出这一次的那份。
         before = {p.name for p in (REPO / "logs").glob("*.log")}
         hp, hpt, epid = hdesk.launch(
-            str(sainput),
+            str(ouuutput),
             f"run --feed {wav}" + (f" --feed-release-at {release_at}" if release_at > 0 else "")
             + " --ime-wmchar on --no-leading-space --no-trailing-space"
             + " --overlay-mode off",
@@ -140,19 +140,19 @@ def main():
     ap.add_argument("--bin", default="")
     a = ap.parse_args()
 
-    sainput = pathlib.Path(a.bin) if a.bin else first([
-        REPO / "target-test/x86_64-pc-windows-gnu/release/sainput.exe",
-        REPO / "target/x86_64-pc-windows-gnu/release/sainput.exe",
-    ], "sainput.exe")
+    ouuutput = pathlib.Path(a.bin) if a.bin else first([
+        REPO / "target-test/x86_64-pc-windows-gnu/release/ouuutput.exe",
+        REPO / "target/x86_64-pc-windows-gnu/release/ouuutput.exe",
+    ], "ouuutput.exe")
     host = first([
-        REPO / "target-test/x86_64-pc-windows-gnu/release/sainput-tsf-host.exe",
-        REPO / "target/x86_64-pc-windows-gnu/release/sainput-tsf-host.exe",
-    ], "sainput-tsf-host.exe")
-    print(f"引擎 {sainput}\n靶子 {host}\nwav {a.wav}\n=== {a.label} ===")
+        REPO / "target-test/x86_64-pc-windows-gnu/release/ouuutput-tsf-host.exe",
+        REPO / "target/x86_64-pc-windows-gnu/release/ouuutput-tsf-host.exe",
+    ], "ouuutput-tsf-host.exe")
+    print(f"引擎 {ouuutput}\n靶子 {host}\nwav {a.wav}\n=== {a.label} ===")
 
     rows = []
     for i in range(a.runs):
-        first_ms, decodes = one_run(sainput, host, a.wav, i, a.release_at)
+        first_ms, decodes = one_run(ouuutput, host, a.wav, i, a.release_at)
         if first_ms is None:
             print(f"  第 {i + 1} 轮:没拿到首字(这一轮作废)")
             continue

@@ -53,9 +53,9 @@ Start-Sleep -Milliseconds 200
 Start-Sleep -Milliseconds 400
 
 $root = Split-Path -Parent $PSScriptRoot
-$exe = Join-Path $root "target\x86_64-pc-windows-gnu\release\sainput.exe"
-if (-not (Test-Path -LiteralPath $exe)) { $exe = Join-Path $root "target\release\sainput.exe" }
-if (-not (Test-Path -LiteralPath $exe)) { Write-Error "找不到 sainput.exe：请先在项目根执行 cargo build --release"; exit 1 }
+$exe = Join-Path $root "target\x86_64-pc-windows-gnu\release\ouuutput.exe"
+if (-not (Test-Path -LiteralPath $exe)) { $exe = Join-Path $root "target\release\ouuutput.exe" }
+if (-not (Test-Path -LiteralPath $exe)) { Write-Error "找不到 ouuutput.exe：请先在项目根执行 cargo build --release"; exit 1 }
 # 相对路径：cargo 起进程时的工作目录不可靠，这里显式拼到项目根
 $wav = Join-Path $root "models\sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20\test_wavs\0.wav"
 $p = Start-Process -FilePath $exe -ArgumentList @("run","--feed",$wav,"--hotkey","rightctrl","--show-console","--log-dir","$env:TEMP\rep_logs") -PassThru -WindowStyle Hidden -RedirectStandardOutput $log -RedirectStandardError "$env:TEMP\rep.err"
@@ -84,8 +84,8 @@ Start-Sleep -Milliseconds 600
 Write-Output "--- Notepad 读回 ---"
 Write-Output ("[" + (Get-Clipboard -Raw) + "]")
 } finally {
-  # 先 release-keys 再按 PID 结束（见 _hygiene.ps1）；绝不按名字全局杀 sainput
-  if ($p) { Stop-SainputSafely -Id $p.Id }
+  # 先 release-keys 再按 PID 结束（见 _hygiene.ps1）；绝不按名字全局杀 ouuutput
+  if ($p) { Stop-OuuutputSafely -Id $p.Id }
   Stop-TestNotepad $np
   Restore-TestHygiene
 }

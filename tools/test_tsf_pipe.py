@@ -3,7 +3,7 @@
 
 判据:
   T1.5 ——
-    1. 端点名按 pid 算:`\\\\.\\pipe\\sainput-tsf-<pid>`,激活期间可连、反激活后消失;
+    1. 端点名按 pid 算:`\\\\.\\pipe\\ouuutput-tsf-<pid>`,激活期间可连、反激活后消失;
     2. 帧协议:4 字节小端长度 + 负载;`P/S/C/X/Q` 各有明确应答,未知命令回 `E`;
     3. 状态机:`S` 记住组合态、`C` 累加已定稿字节并清空组合态、`X` 清空;
     4. 一个客户端断开后,下一个还能连;断开后重连不残留脏状态。
@@ -15,11 +15,11 @@
     8. 组合态闲置 5s 由看门狗自动取消(不留半句在别人文档里)。
 
 换一套位数组合来跑(32 位薄壳 + 32 位宿主):
-    cargo build --release --target i686-pc-windows-msvc --target-dir target-test-msvc -p sainput-tsf -p sainput-tsf-host
-    SAINPUT_TSF_DIR=target-test-msvc/i686-pc-windows-msvc/release python tools/test_tsf_pipe.py
+    cargo build --release --target i686-pc-windows-msvc --target-dir target-test-msvc -p ouuutput-tsf -p ouuutput-tsf-host
+    OUUUTPUT_TSF_DIR=target-test-msvc/i686-pc-windows-msvc/release python tools/test_tsf_pipe.py
 
 跑法:
-    cargo build --release --target-dir target-test -p sainput-tsf -p sainput-tsf-host
+    cargo build --release --target-dir target-test -p ouuutput-tsf -p ouuutput-tsf-host
     python tools/test_tsf_pipe.py
 """
 import os
@@ -36,15 +36,15 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 DIRS = ["target-test/x86_64-pc-windows-gnu/release", "target-test/release",
         "target/x86_64-pc-windows-gnu/release", "target/release"]
 DESKTOP = "SAI-TsfPipe"
-VERSION = b"sainput-tsf/1"
+VERSION = b"ouuutput-tsf/1"
 CN = "你好,组合态"
 
 
 def find(rel, what):
-    # `SAINPUT_TSF_DIR` = 换一套"薄壳 + 宿主"来跑(例如 32 位那套)。
+    # `OUUUTPUT_TSF_DIR` = 换一套"薄壳 + 宿主"来跑(例如 32 位那套)。
     # 引擎不跟着换 —— 它本来就是另一个进程。
-    override = os.environ.get("SAINPUT_TSF_DIR")
-    if override and rel != "sainput.exe":
+    override = os.environ.get("OUUUTPUT_TSF_DIR")
+    if override and rel != "ouuutput.exe":
         p = pathlib.Path(override) / rel
         if p.exists():
             return p
@@ -98,8 +98,8 @@ def q(f) -> str:
 
 
 def main():
-    host = find("sainput-tsf-host.exe", "host")
-    dll = find("sainput_tsf.dll", "sainput_tsf.dll")
+    host = find("ouuutput-tsf-host.exe", "host")
+    dll = find("ouuutput_tsf.dll", "ouuutput_tsf.dll")
     tmp = REPO / "tmp"
     tmp.mkdir(exist_ok=True)
     hlog = tmp / "pipe-host.log"
@@ -124,7 +124,7 @@ def main():
     try:
         hp, ht, pid = hdesk.launch(
             str(host), f"--life 26000 --tip-hold 22000 --log {hlog} --load-tip {dll}", DESKTOP)
-        name = rf"\\.\pipe\sainput-tsf-{pid}"
+        name = rf"\\.\pipe\ouuutput-tsf-{pid}"
         print(f"host pid={pid} pipe={name}")
         f = connect(name)
         check("激活期间管道可连", f is not None)
@@ -175,8 +175,8 @@ def main():
                 check("第二个客户端 ping 正常", exchange(f2, b"P" + VERSION)[:1] == b"O")
                 f2.close()
 
-        # ---- 引擎侧:真的让 `sainput` 从**另一张桌面**发一句过来 ----
-        sainput = find("sainput.exe", "engine")
+        # ---- 引擎侧:真的让 `ouuutput` 从**另一张桌面**发一句过来 ----
+        ouuutput = find("ouuutput.exe", "engine")
         edit = hdesk.find_edit(pid, h)
         check("宿主有文本控件句柄", edit is not None)
         if edit:
@@ -186,7 +186,7 @@ def main():
                 f3.close()
             r = subprocess.run(
                 # `--pid` 是必须的:窗口在别的桌面上,引擎那边推不出 pid(句柄是桌面作用域的)。
-                [str(sainput), "selftest", "compose", "引擎经管道发来的一句", "--mode", "tsf",
+                [str(ouuutput), "selftest", "compose", "引擎经管道发来的一句", "--mode", "tsf",
                  "--hwnd", hex(edit), "--pid", str(pid), "--frames", "3"],
                 capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
             check("引擎(TSF 通道)退出码 0", r.returncode == 0, (r.stderr or "").strip()[:200])

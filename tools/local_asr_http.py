@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Local OpenAI-compatible ASR bridge for sainput.
+"""Local OpenAI-compatible ASR bridge for ouuutput.
 
 The Metasequoia IME can send a recorded WAV to any OpenAI-compatible
 ``/v1/audio/transcriptions`` endpoint. This bridge accepts that request, feeds
-the PCM to sainput's ``asr_sidecar.py`` (sherpa-onnx streaming ASR + punctuation
+the PCM to ouuutput's ``asr_sidecar.py`` (sherpa-onnx streaming ASR + punctuation
 + ITN), and returns ``{"text": "..."}``.
 
 It is a prototype integration path: no IME rebuild is required. The sidecar is
@@ -305,7 +305,7 @@ class Sidecar:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "sainput-local-asr/0.1"
+    server_version = "ouuutput-local-asr/0.1"
 
     def log_message(self, fmt: str, *args) -> None:
         sys.stderr.write("[bridge] " + (fmt % args) + "\n")
@@ -340,7 +340,7 @@ class Handler(BaseHTTPRequestHandler):
             body = self.rfile.read(length)
             wav = extract_file_part(self.headers.get("Content-Type", ""), body)
             try:
-                with open(os.path.join(os.environ.get("TEMP", "."), "sainput-last.wav"), "wb") as f:
+                with open(os.path.join(os.environ.get("TEMP", "."), "ouuutput-last.wav"), "wb") as f:
                     f.write(wav)
             except Exception:
                 pass
@@ -385,7 +385,7 @@ def main() -> int:
     ap.add_argument("--port", type=int, default=18080)
     ap.add_argument("--python", default=os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "dist", "sainput-0.2.2-win64", "runtime", "python.exe"))
+        "dist", "ouuutput-0.2.2-win64", "runtime", "python.exe"))
     ap.add_argument("--script", default=os.path.join(
         os.path.dirname(os.path.abspath(__file__)), "asr_sidecar.py"))
     ap.add_argument("--model-dir", default=os.path.join(

@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────────────────────
-# sainput .gitignore
+# ouuutput .gitignore
 # 原则：个人配置、运行时产物、模型、内部文档都不进仓库；
 #      可公开的模板以同名 *.example 提交（见 CONTRIBUTING.md）。
 # ─────────────────────────────────────────────────────────────
@@ -12,7 +12,7 @@
 /target-*
 
 # ── 个人配置与运行时状态（提交同名 .example，不提交真实文件）──
-/sainput.conf
+/ouuutput.conf
 /hotwords.txt
 /.ctx_hotwords.txt
 /@AutomationLog.txt

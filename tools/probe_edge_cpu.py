@@ -14,7 +14,7 @@
     cargo build --release
     python tools/probe_edge_cpu.py            # 三组各 ~45 秒
 
-⚠️ 引擎跑在**私有桌面**(你看不见),`SAINPUT_SINGLE_NS` 隔离,不接管你正在用的实例。
+⚠️ 引擎跑在**私有桌面**(你看不见),`OUUUTPUT_SINGLE_NS` 隔离,不接管你正在用的实例。
 ⚠️ 会用进程内自动按键让引擎**连续录音 40 秒**(这样边缘光一直是亮的,便于量),
    不合成任何按键事件;`--dry-run` 保证不往任何窗口打字。
 """
@@ -30,8 +30,8 @@ import hdesk  # noqa: E402
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 DESKTOP = "SAI-EdgeCpu"
-NS = "sainput-edgecpu"
-ENV_KEYS = ("SAINPUT_SINGLE_NS", "SAINPUT_DIAG_AUTOSTART", "SAINPUT_DIAG_TARGET_HWND")
+NS = "ouuutput-edgecpu"
+ENV_KEYS = ("OUUUTPUT_SINGLE_NS", "OUUUTPUT_DIAG_AUTOSTART", "OUUUTPUT_DIAG_TARGET_HWND")
 k32 = ctypes.WinDLL("kernel32", use_last_error=True)
 
 
@@ -50,14 +50,14 @@ def cpu_seconds(pid):
         k32.CloseHandle(h)
 
 
-def one(sainput, host, overlay_mode, fps, settle=12.0, window=20.0):
+def one(ouuutput, host, overlay_mode, fps, settle=12.0, window=20.0):
     d = hdesk.open_desktop(DESKTOP)
     saved = {k: os.environ.get(k) for k in ENV_KEYS}
     hh = hp = None
     hpid = epid = 0
     try:
-        os.environ["SAINPUT_SINGLE_NS"] = NS
-        os.environ["SAINPUT_DIAG_AUTOSTART"] = "40000"  # 自动"按住"40 秒:边缘光一直亮
+        os.environ["OUUUTPUT_SINGLE_NS"] = NS
+        os.environ["OUUUTPUT_DIAG_AUTOSTART"] = "40000"  # 自动"按住"40 秒:边缘光一直亮
         hh, _ht, hpid = hdesk.launch(
             str(host), f"--life 90000 --log {REPO / 'tmp' / 'edgecpu-host.log'}", DESKTOP)
         edit = None
@@ -67,11 +67,11 @@ def one(sainput, host, overlay_mode, fps, settle=12.0, window=20.0):
             if edit:
                 break
             time.sleep(0.2)
-        os.environ["SAINPUT_DIAG_TARGET_HWND"] = hex(edit)
+        os.environ["OUUUTPUT_DIAG_TARGET_HWND"] = hex(edit)
         args = f"run --no-tray --dry-run --overlay-mode {overlay_mode}"
         if fps:
             args += f" --edge-fps {fps}"
-        hp, _hpt, epid = hdesk.launch(str(sainput), args, DESKTOP)
+        hp, _hpt, epid = hdesk.launch(str(ouuutput), args, DESKTOP)
         time.sleep(settle)  # 让模型加载 + 第一句跑起来(稳态)
         c0 = None
         t0 = time.time()
@@ -98,15 +98,15 @@ def one(sainput, host, overlay_mode, fps, settle=12.0, window=20.0):
 
 
 def main():
-    sainput = REPO / "target/x86_64-pc-windows-gnu/release/sainput.exe"
-    host = REPO / "target/x86_64-pc-windows-gnu/release/sainput-tsf-host.exe"
-    for p, what in ((sainput, "引擎"), (host, "宿主")):
+    ouuutput = REPO / "target/x86_64-pc-windows-gnu/release/ouuutput.exe"
+    host = REPO / "target/x86_64-pc-windows-gnu/release/ouuutput-tsf-host.exe"
+    for p, what in ((ouuutput, "引擎"), (host, "宿主")):
         if not p.exists():
             print(f"FAIL: {what} 没构建({p})")
             return 2
     res = {}
     for label, mode, fps in (("off", "off", None), ("edge60", "edge", 60), ("edge30", "edge", 30)):
-        cores = one(sainput, host, mode, fps)
+        cores = one(ouuutput, host, mode, fps)
         res[label] = cores
         print(f"  {label:8s} 平均占用 {cores:.3f} 核")
     base = res["off"]

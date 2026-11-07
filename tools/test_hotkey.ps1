@@ -17,13 +17,13 @@ public class K {
 . "$PSScriptRoot\_hygiene.ps1"
 Initialize-TestHygiene
 $root = Split-Path -Parent $PSScriptRoot
-$exe = Join-Path $root "target\x86_64-pc-windows-gnu\release\sainput.exe"
-if (-not (Test-Path -LiteralPath $exe)) { $exe = Join-Path $root "target\release\sainput.exe" }
-if (-not (Test-Path -LiteralPath $exe)) { Write-Error "找不到 sainput.exe：请先在项目根执行 cargo build --release"; exit 1 }
-$log = "$env:TEMP\sainput_run.log"
+$exe = Join-Path $root "target\x86_64-pc-windows-gnu\release\ouuutput.exe"
+if (-not (Test-Path -LiteralPath $exe)) { $exe = Join-Path $root "target\release\ouuutput.exe" }
+if (-not (Test-Path -LiteralPath $exe)) { Write-Error "找不到 ouuutput.exe：请先在项目根执行 cargo build --release"; exit 1 }
+$log = "$env:TEMP\ouuutput_run.log"
 Remove-Item -LiteralPath $log -ErrorAction SilentlyContinue
 
-$p = Start-Process -FilePath $exe -ArgumentList @("run","--log-dir","$env:TEMP\hotkey_logs") -PassThru -WindowStyle Hidden -RedirectStandardOutput $log -RedirectStandardError "$env:TEMP\sainput_run.err"
+$p = Start-Process -FilePath $exe -ArgumentList @("run","--log-dir","$env:TEMP\hotkey_logs") -PassThru -WindowStyle Hidden -RedirectStandardOutput $log -RedirectStandardError "$env:TEMP\ouuutput_run.err"
 Write-Output "started run pid=$($p.Id)"
 
 for ($i = 0; $i -lt 80; $i++) {
@@ -44,9 +44,9 @@ Start-Sleep -Seconds 3
 
 Write-Output "--- run 运行日志（全部）---"
 Get-Content $log -Encoding UTF8 -ErrorAction SilentlyContinue
-$err = Get-Content "$env:TEMP\sainput_run.err" -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
+$err = Get-Content "$env:TEMP\ouuutput_run.err" -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
 if ($err -and $err.Trim()) { Write-Output "--- stderr ---"; Write-Output $err }
 
-# 先 release-keys 再按 PID 结束（见 _hygiene.ps1）；绝不按名字全局杀 sainput
-Stop-SainputSafely -Id $p.Id
+# 先 release-keys 再按 PID 结束（见 _hygiene.ps1）；绝不按名字全局杀 ouuutput
+Stop-OuuutputSafely -Id $p.Id
 Write-Output "stopped"

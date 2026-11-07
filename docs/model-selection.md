@@ -10,7 +10,7 @@
 
 ## 1. 跟手感：延迟到底卡在哪
 
-结论先说：**卡在模型，不在 sainput**。延迟分三段：
+结论先说：**卡在模型，不在 ouuutput**。延迟分三段：
 
 | 段 | 实测 | 能不能再压 |
 |---|---|---|
@@ -47,7 +47,7 @@
 | 刷新间隔 p50 | **192ms** |
 | CPU | 0.6B 参数，2 线程**比实时慢**（墙钟更新间隔 337ms > 音频间隔 192ms，越说越落后）；8 线程才勉强追平（204ms vs 192ms），CPU 基本吃满 |
 
-**结论：想更快只能换引擎 / 换硬件；sainput 这一侧已经压到底了。**
+**结论：想更快只能换引擎 / 换硬件；ouuutput 这一侧已经压到底了。**
 
 ---
 
@@ -91,7 +91,7 @@ x-asr-480ms 同一段音频输出：
 | zh-14M-2023-02-23 | 体积最小（约 24MB 权重），够用就好 |
 | nemotron-3.5-asr-streaming-0.6b-80ms-int8-2026-06-11 | 80ms 分块、首个字最快（555ms）、中文可用；**代价是 CPU**：要多线程才追得上实时，模型约 627MB。想试就把 `model_dir` 指过去并 `threads = 8` |
 
-换档只改 `sainput.conf` 一行：
+换档只改 `ouuutput.conf` 一行：
 
 ```ini
 model_dir = models/sherpa-onnx-x-asr-480ms-streaming-zipformer-transducer-zh-en-int8-2026-06-05

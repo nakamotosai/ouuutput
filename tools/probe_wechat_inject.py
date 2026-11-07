@@ -8,10 +8,10 @@
 `inject.rs` 的 `auto` 判据(`class_needs_message_channel`)靠这把尺子量出来。
 
 ⛔ 安全红线(2026-10-30 踩过,用户键盘被卡住):**绝不用合成按键去触发热键**。
-   热键按下会被 sainput 的钩子吃掉,keyup 也得靠同一个钩子送达 —— 那个实例被硬杀之后
+   热键按下会被 ouuutput 的钩子吃掉,keyup 也得靠同一个钩子送达 —— 那个实例被硬杀之后
    keyup 永久丢失,系统/目标程序就认为修饰键一直按着(用户键盘上可能根本没那个键)。
-   需要无人值守触发「按住 → 松开」请用 `SAINPUT_DIAG_AUTOSTART=<ms>`。本脚本只发窗口消息,
-   但读回要用 Ctrl+A/Ctrl+C 合成按键 —— 跑之前确认没有别的 sainput 在用这些键。
+   需要无人值守触发「按住 → 松开」请用 `OUUUTPUT_DIAG_AUTOSTART=<ms>`。本脚本只发窗口消息,
+   但读回要用 Ctrl+A/Ctrl+C 合成按键 —— 跑之前确认没有别的 ouuutput 在用这些键。
 
 读回方式:自绘输入框答不上 `WM_GETTEXT`,所以走 **Ctrl+A / Ctrl+C + 剪贴板**。
 ⚠️ 两个坑(都踩过):
@@ -80,7 +80,7 @@ class _INPUT(ctypes.Structure):
 
 
 def send_unicode(text):
-    """sainput 默认那条路:SendInput + KEYEVENTF_UNICODE(字母会被输入法收走)。"""
+    """ouuutput 默认那条路:SendInput + KEYEVENTF_UNICODE(字母会被输入法收走)。"""
     ev = []
     for ch in text:
         raw = ch.encode("utf-16-le")
@@ -235,7 +235,7 @@ def drive(text, policy):
     if not os.path.exists(exe):
         exe = os.path.join(root, r"target\release\examples\injectprobe.exe")
     if not os.path.exists(exe):
-        print("先构建探针:cargo build --release -p sainput-core --example injectprobe")
+        print("先构建探针:cargo build --release -p ouuutput-core --example injectprobe")
         return 2
     out = subprocess.run([exe, text, policy, DEFAULT_TITLE], capture_output=True, text=True,
                          encoding="utf-8", errors="replace")

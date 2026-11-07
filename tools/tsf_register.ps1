@@ -1,4 +1,4 @@
-﻿# tsf_register.ps1 -- register / unregister the sainput TSF text service.
+﻿# tsf_register.ps1 -- register / unregister the ouuutput TSF text service.
 #
 # ASCII-ONLY on purpose: Windows PowerShell 5 decodes .ps1 as ANSI (GBK here) and
 # silently mangles non-ASCII text, which then eats newlines and breaks parsing.
@@ -25,7 +25,7 @@
 param(
   [Parameter(Mandatory = $true)][ValidateSet('register','unregister','verify')][string]$Action,
   [string]$Dll = '',
-  [string]$Name = 'sainput voice input',
+  [string]$Name = 'ouuutput IME',
   [string]$Clsid = '{FCC45A5E-09C4-410A-B696-BDD2DA66A21F}',
   [string]$ProfileGuid = '{6A1F2B7C-3D4E-4F50-9A1B-2C3D4E5F6071}',
   [string]$LangId = '0x00000804',
@@ -79,9 +79,9 @@ function Show-State {
   foreach ($p in $found) { Write-Output "  $p" }
   $dllPath = (Get-ItemProperty -Path "$COMS\InProcServer32" -ErrorAction SilentlyContinue).'(default)'
   if ($dllPath) { Write-Output "  dll: $dllPath" }
-  $ver = (Get-ItemProperty -Path $TIP -ErrorAction SilentlyContinue).SainputVersion
+  $ver = (Get-ItemProperty -Path $TIP -ErrorAction SilentlyContinue).OuuutputVersion
   if ($ver) { Write-Output "  version: $ver" }
-  $at = (Get-ItemProperty -Path $TIP -ErrorAction SilentlyContinue).SainputRegisteredAt
+  $at = (Get-ItemProperty -Path $TIP -ErrorAction SilentlyContinue).OuuutputRegisteredAt
   if ($at) { Write-Output "  registered-at: $at" }
   $prof = "$TIP\LanguageProfile\$LangId\$ProfileGuid"
   if (Test-Path $prof) {
@@ -114,7 +114,7 @@ if ($Action -eq 'verify') {
 }
 
 if ($Action -eq 'register' -and -not $Dll) {
-  Write-Output "ERROR: -Dll <path to sainput_tsf.dll> is required for register"
+  Write-Output "ERROR: -Dll <path to ouuutput_tsf.dll> is required for register"
   exit 2
 }
 if ($Action -eq 'register' -and -not (Test-Path -LiteralPath $Dll)) {
@@ -161,16 +161,16 @@ if ($Action -eq 'register') {
   New-ItemProperty -Path "$COMS\InProcServer32" -Name 'ThreadingModel' -Value 'Apartment' -PropertyType String -Force | Out-Null
   # 版本 + 注册时刻:升级/降级之后 verify 一眼看得出装的是哪份、什么时候装的。
   if ($Version) {
-    New-ItemProperty -Path $TIP -Name 'SainputVersion' -Value $Version -PropertyType String -Force | Out-Null
+    New-ItemProperty -Path $TIP -Name 'OuuutputVersion' -Value $Version -PropertyType String -Force | Out-Null
   }
-  New-ItemProperty -Path $TIP -Name 'SainputRegisteredAt' `
+  New-ItemProperty -Path $TIP -Name 'OuuutputRegisteredAt' `
       -Value (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') -PropertyType String -Force | Out-Null
   Write-Output "registered."
   Show-State
   Write-Output ""
   Write-Output "next: the TIP only loads where it is ACTIVE. Use tools/test_tsf_activate.py"
   Write-Output "      (or the language bar) to activate it per process, then check"
-  Write-Output "      \\\\.\\pipe\\sainput-tsf-<pid> appears."
+  Write-Output "      \\\\.\\pipe\\ouuutput-tsf-<pid> appears."
   exit 0
 }
 

@@ -1,6 +1,6 @@
-# sainput — low-latency, fully local voice input for Windows
+# ouuutput — low-latency, fully local voice input for Windows
 
-`sainput` turns speech into text at the caret of whatever window you are typing in.
+`ouuutput` turns speech into text at the caret of whatever window you are typing in.
 Hold a hotkey, speak, release — words appear as you talk, with automatic punctuation
 and digit normalization. Speech recognition and punctuation run entirely on your CPU;
 **nothing is sent over the network at runtime**.
@@ -31,8 +31,8 @@ sherpa-onnx is 160 ms.
 ## Build & run
 
 ```powershell
-git clone <repo-url> sainput
-cd sainput
+git clone <repo-url> ouuutput
+cd ouuutput
 pip install -r requirements.txt
 powershell -ExecutionPolicy Bypass -File scripts/fetch_models.ps1
 build.bat build --release
@@ -42,9 +42,9 @@ start.bat
 `start.bat` launches the built binary, the console hides itself, and a tray icon becomes the
 only visible sign that it is running. Exit via **right-click tray → Exit**. Put the caret in a
 window that accepts typing (Notepad, browser, WeChat, VS Code), hold **right Ctrl**, speak,
-release. Use `sainput run --show-console` if you want to watch the debug console.
+release. Use `ouuutput run --show-console` if you want to watch the debug console.
 
-Copy `sainput.conf.example` to `sainput.conf` (and optionally `hotwords.example.txt` to
+Copy `ouuutput.conf.example` to `ouuutput.conf` (and optionally `hotwords.example.txt` to
 `hotwords.txt`); both are optional, defaults work without them.
 
 ## Key features
@@ -66,11 +66,11 @@ Copy `sainput.conf.example` to `sainput.conf` (and optionally `hotwords.example.
 ## Command line
 
 ```
-sainput devices | record | probe | replay | render | config | overlay-demo
+ouuutput devices | record | probe | replay | render | config | overlay-demo
         release-keys | run | selftest inject
 ```
 
-Run `sainput run` with no arguments for defaults; `sainput --help` lists every switch
+Run `ouuutput run` with no arguments for defaults; `ouuutput --help` lists every switch
 (`--hotkey`, `--toggle`, `--model-dir`, `--punct-mode`, `--ctx-bias`, `--merge-terms`,
 `--fix-case`, `--rule1`/`--rule2`/`--rule3`, `--throttle-ms`, `--tail-ms`,
 `--tail-quiet-ms`, `--tail-max-ms`, `--tail-pad-ms`, `--tail-rms`, `--overlay-mode`,
@@ -84,7 +84,7 @@ you want for character-by-character output.
 
 Default is a 160 ms-chunk streaming zipformer transducer (Chinese + English, int8).
 `scripts/fetch_models.ps1` downloads it plus the punctuation model and verifies sizes;
-other variants are selectable with `-Variant`. `sainput` never downloads models at runtime,
+other variants are selectable with `-Variant`. `ouuutput` never downloads models at runtime,
 and this repository ships **no model weights**.
 
 - Model selection, measurements and per-model trade-offs: [`docs/model-selection.md`](docs/model-selection.md)
@@ -106,7 +106,7 @@ console residue): [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
 ## Privacy
 
 ASR and punctuation run offline. Logs (`logs/`) and `.ctx_hotwords.txt` contain your input
-text and stay local; both are git-ignored, as are `sainput.conf`, `hotwords.txt`, and `models/`.
+text and stay local; both are git-ignored, as are `ouuutput.conf`, `hotwords.txt`, and `models/`.
 No telemetry, no accounts.
 
 ## License

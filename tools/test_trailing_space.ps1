@@ -1,7 +1,7 @@
 ﻿# 句尾空格回归:验证「句尾补一个空格」真的落到窗口里,而且**只补一个**。
 #
 # 为什么必须端到端测:这个空格是在 writer 的记账里加进去的(`want()`),
-# 单测验证得了算术,验证不了「真的进了记事本」。这里用固定的 wav 喂给 sainput,
+# 单测验证得了算术,验证不了「真的进了记事本」。这里用固定的 wav 喂给 ouuutput,
 # 合成右 Ctrl 触发一次,再把记事本内容读回来判。
 #
 # 判据:
@@ -56,12 +56,12 @@ public class TS {
 . "$PSScriptRoot\_hygiene.ps1"
 Initialize-TestHygiene
 $root = Split-Path -Parent $PSScriptRoot
-$exe = Join-Path $root "target\x86_64-pc-windows-gnu\release\sainput.exe"
-if (-not (Test-Path -LiteralPath $exe)) { $exe = Join-Path $root "target\release\sainput.exe" }
+$exe = Join-Path $root "target\x86_64-pc-windows-gnu\release\ouuutput.exe"
+if (-not (Test-Path -LiteralPath $exe)) { $exe = Join-Path $root "target\release\ouuutput.exe" }
 # -ExePath 用来测「隔离构建」的产物(正在跑的 exe 被占用、换不了的时候)。
 # 跑用户实例的同时跑本测试是安全的:本测试用 --feed(不占麦)、--no-tray,且热键不同。
 if ($ExePath) { $exe = $ExePath }
-if (-not (Test-Path -LiteralPath $exe)) { Write-Error "找不到 sainput.exe:请先在项目根执行 cargo build --release"; exit 1 }
+if (-not (Test-Path -LiteralPath $exe)) { Write-Error "找不到 ouuutput.exe:请先在项目根执行 cargo build --release"; exit 1 }
 $wav = Join-Path $root "models\sherpa-onnx-x-asr-160ms-streaming-zipformer-transducer-zh-en-int8-2026-06-05\test_wavs\2.wav"
 $label = if ($NoTail) { "notail" } else { "tail" }
 $dir = "$env:TEMP\trail\$label"
@@ -132,8 +132,8 @@ if ($NoTail) {
 
 # 还原剪贴板
 if ($null -ne $saved) { try { Set-Clipboard -Value $saved } catch {} }
-# 先 release-keys 再按 PID 结束(见 _hygiene.ps1);绝不按名字全局杀 sainput
-Stop-SainputSafely -Id $p.Id
+# 先 release-keys 再按 PID 结束(见 _hygiene.ps1);绝不按名字全局杀 ouuutput
+Stop-OuuutputSafely -Id $p.Id
 Stop-TestNotepad $np
 Write-Output "done $label $ok"
 exit $(if ($ok) { 0 } else { 1 })

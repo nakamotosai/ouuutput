@@ -2,7 +2,7 @@
 #
 # 为什么必须有这条：低级鼠标钩子会让每一个鼠标事件等待钩子过程返回，
 # 而钩子回调跑在钩子线程的消息循环里 —— 那条循环里任何 sleep 都会变成鼠标延迟。
-# 我踩过：sainput 的消息循环里写了 sleep(40ms)，用户的鼠标立刻卡成幻灯片（p50 31ms），
+# 我踩过：ouuutput 的消息循环里写了 sleep(40ms)，用户的鼠标立刻卡成幻灯片（p50 31ms），
 # 而这件事**在任何日志里都看不出来**。所以必须有一条能把它量出来的回归。
 #
 # 判据：p50 < 5ms。
@@ -16,8 +16,8 @@ $probe = Join-Path $root "tools\probe_mouse_lag.py"
 
 Write-Output "=== 鼠标事件延迟（$Label）==="
 # 只读检查：本脚本不杀任何进程
-$running = [bool](Get-Process -Name 'sainput' -ErrorAction SilentlyContinue)
-Write-Output "  sainput 在跑吗: $running"
+$running = [bool](Get-Process -Name 'ouuutput' -ErrorAction SilentlyContinue)
+Write-Output "  ouuutput 在跑吗: $running"
 $out = (& $py $probe 2>&1 | Out-String).Trim()
 $code = $LASTEXITCODE
 Write-Output "  测量: $out"

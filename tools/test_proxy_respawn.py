@@ -44,7 +44,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from test_doubao_proxy import packet, parse_server
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-PROXY = os.path.join(HERE, "sainput_doubao_proxy.py")
+PROXY = os.path.join(HERE, "ouuutput_doubao_proxy.py")
 STUB = os.path.join(HERE, "stub_sidecar.py")
 PORT = 19099
 URL = "wss://127.0.0.1:%d/api/v3/sauc/bigmodel_async" % PORT
@@ -138,7 +138,7 @@ def main() -> int:
     tmp = tempfile.mkdtemp(prefix="proxy-respawn-")
     proxy_log = os.path.join(tmp, "proxy.log")
     sidecar_log = os.path.join(tmp, "sidecar.log")
-    env = dict(os.environ, SAINPUT_PROXY_LOG=proxy_log, SAINPUT_SIDECAR_LOG=sidecar_log,
+    env = dict(os.environ, OUUUTPUT_PROXY_LOG=proxy_log, OUUUTPUT_SIDECAR_LOG=sidecar_log,
                STUB_DIE_AFTER_AUDIO=str(DIE_AFTER))
     proc = subprocess.Popen(
         [sys.executable, PROXY, "--port", str(PORT),

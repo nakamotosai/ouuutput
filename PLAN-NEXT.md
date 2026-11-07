@@ -9,7 +9,7 @@
 
 ## 1) 更快(现有真实数据:2528 句)
 
-`logs/sainput-*.log` 里每句都有 `松键→收尾` 与 `模型停吐`,直接算得出用户实际等待:
+`logs/ouuutput-*.log` 里每句都有 `松键→收尾` 与 `模型停吐`,直接算得出用户实际等待:
 
 | 说完→出字 | p50 | p75 | p90 | p95 |
 |---|---|---|---|---|
@@ -63,26 +63,26 @@
 
 **⚠️ 部署与踩坑(2026-10-31 晚,务必记住)**
 
-1. **跑 `sainput run` 做任何测试前,必须设 `SAINPUT_SINGLE_NS`**(如
-   `SAINPUT_SINGLE_NS=sainput-cap-test`)。不设的话,单实例逻辑会按 exe 名找到
-   **用户正在用的那个实例**、请它退出、不走就硬杀(`crates/sainput-core/src/single.rs`
+1. **跑 `ouuutput run` 做任何测试前,必须设 `OUUUTPUT_SINGLE_NS`**(如
+   `OUUUTPUT_SINGLE_NS=ouuutput-cap-test`)。不设的话,单实例逻辑会按 exe 名找到
+   **用户正在用的那个实例**、请它退出、不走就硬杀(`crates/ouuutput-core/src/single.rs`
    的 `ns()`/`exe_name()`)—— 我这次没设,把用户正在用的输入法踢下线了一次 ✗。
-   已有的测试脚本(`test_race_guards.py` 等)都设了 `SAINPUT_SINGLE_NS=sainput-racetest`,照它们抄。
-2. **`cargo build --release` 报 `failed to remove file ...sainput.exe`(os error 5)
+   已有的测试脚本(`test_race_guards.py` 等)都设了 `OUUUTPUT_SINGLE_NS=ouuutput-racetest`,照它们抄。
+2. **`cargo build --release` 报 `failed to remove file ...ouuutput.exe`(os error 5)
    不是编译错误** —— 编译早就过了,只是最后一步换不上(镜像被在跑的进程锁着)。
    换法:`powershell -File tools/deploy.ps1`(改名腾位 → 拷新的 → 启动新实例接管;
    不需要先手动退出,旧的那份留成 `.old-<时间戳>` 可回退)。
-   (早先那支"必须先在托盘退出"的 `tools/swap_engine.ps1` 已被它取代 —— 2026-11-01 移到 `F:\archive\sainput\`。)
-3. 启动用 `start.bat`(它会带 `run --hide-console`);直接 `Start-Process sainput.exe`
+   (早先那支"必须先在托盘退出"的 `tools/swap_engine.ps1` 已被它取代 —— 2026-11-01 移到 `F:\archive\ouuutput\`。)
+3. 启动用 `start.bat`(它会带 `run --hide-console`);直接 `Start-Process ouuutput.exe`
    没有子命令,起不来 ✗。
-4. 本次已部署:新引擎在 `target/x86_64-pc-windows-gnu/release/sainput.exe`
+4. 本次已部署:新引擎在 `target/x86_64-pc-windows-gnu/release/ouuutput.exe`
    (旧的在同目录 `.bak`),测试副本在 `target-test/.../release/`(测试脚本认这个目录)。
    给用户重启后跑 `python tools/latency_report.py --last 20` 就能看到真实的前/后对比
    (报告已会读 `收尾硬上限 ... 到点(实际等 Nms)` 那一行并给出"上限前/上限后"两列)。
 
 **✅ 已实现并验过(2026-10-31 晚)** —— 收尾硬上限,松手后不再干等模型:
 
-改了什么(`crates/sainput-cli/src/main.rs`):
+改了什么(`crates/ouuutput-cli/src/main.rs`):
 - 进 `AwaitFinal` 开始计时;**到点(`final_wait_ms`,默认 1200ms)就把最后一条 partial
   当成一次"先上屏"打出去**(reason=`cap`),然后照常等真 final;
 - cap **不是**这一句的结束:真 final 到了仍走 `finish` 那条路,关键模式的 `finalize` 是
@@ -90,11 +90,11 @@
   既不重复上屏,也不会把"最后一个字"判死;
 - 没有非空 partial 时**不触发**(宁可等,也不把这一句打脏);
 - **组合态(`is_compose`)不参与**:那条路 `finalize` 是整段一次提交,同一句提交两次会重字;
-- 阈值:`SAINPUT_FINAL_WAIT_MS`(0 = 关掉,退回旧行为)。
+- 阈值:`OUUUTPUT_FINAL_WAIT_MS`(0 = 关掉,退回旧行为)。
 
 实测(假侧车,`--feed tmp/zh-en.wav --feed-release-at 1.0 --dry-run`):
 ```
-SAINPUT_FINAL_WAIT_MS=400,脚本在 2500ms 后才给真 final:
+OUUUTPUT_FINAL_WAIT_MS=400,脚本在 2500ms 后才给真 final:
   ! 收尾硬上限 400ms 到点(实际等 404ms)→ 先把当前最好的一版打上屏(reason=cap,真 final 到了再补)
   F   4170ms  (cap)     第一句完整
   F   4503ms  (finish)  第一句完整      ← 真 final 仍在,没被丢掉
@@ -109,7 +109,7 @@ SAINPUT_FINAL_WAIT_MS=400,脚本在 2500ms 后才给真 final:
   ②在 AwaitFinal 分支里按 tick 累计已等时长(循环是 ~20ms 一拍);③超时就构造
   `Msg::Final { text: 最后那条 partial, reason: "cap" }` 交给 `handle_msg`,再走一遍
   已有的定稿簿记(`finalized` / `last_undo` / `stage`)——**不要拼接、不要猜字**;
-- 阈值先用环境变量 `SAINPUT_FINAL_WAIT_MS`(默认 1200)跑通,确认有收益再升成配置项 + 托盘;
+- 阈值先用环境变量 `OUUUTPUT_FINAL_WAIT_MS`(默认 1200)跑通,确认有收益再升成配置项 + 托盘;
 - 回归:假侧车写一个"只吐 partial、永不 finish"的脚本 → 预期 1.2s 后自动定稿并上屏,
   且只上屏一次(T4.1 的守卫仍然生效)。
 
@@ -140,16 +140,16 @@ SAINPUT_FINAL_WAIT_MS=400,脚本在 2500ms 后才给真 final:
 
 引擎每句自动留一份到 `<日志目录>/corpus/`:`<启动时刻>-<序号>.wav`(只说那几秒的真实音频)
 + `index.jsonl`(text/raw/wait_ms/cap_waited_ms/dur_ms/dropped_frames),默认上限 200 句/300MB
-滚动删最旧。关掉:`SAINPUT_CORPUS=off`;`--no-log` 时自动一并关(没有日志就不留音频)。
+滚动删最旧。关掉:`OUUUTPUT_CORPUS=off`;`--no-log` 时自动一并关(没有日志就不留音频)。
 
 验证:单元测试 3 项(原样读回 ±1LSB、滚动删最旧且 index 对齐、非本句的帧不入档);
-端到端(假侧车 + `--feed`,**带 `SAINPUT_SINGLE_NS`**)落盘 1.31s wav + `wait_ms: 323`
-的 index 行,python `wave` 能按标准读(16000Hz/mono/20992 帧);`SAINPUT_CORPUS=off` 与
+端到端(假侧车 + `--feed`,**带 `OUUUTPUT_SINGLE_NS`**)落盘 1.31s wav + `wait_ms: 323`
+的 index 行,python `wave` 能按标准读(16000Hz/mono/20992 帧);`OUUUTPUT_CORPUS=off` 与
 `--no-log` 两种情况下目录为空。现成工具直接可用:`bench_models.py --wavs logs/corpus <候选模型>`。
 
-**还没装到在跑的那个二进制上**:`target/release/sainput.exe` 被正在运行的实例锁着,
+**还没装到在跑的那个二进制上**:`target/release/ouuutput.exe` 被正在运行的实例锁着,
 换不了。跑 `powershell -File tools/deploy.ps1` 即可(它改名腾位后启动新实例接管,不必先退出;
-早先那支"必须先退出"的 swap_engine.ps1 已移到 `F:\archive\sainput\`)。
+早先那支"必须先退出"的 swap_engine.ps1 已移到 `F:\archive\ouuutput\`)。
 
 ### ⛔ 2026-11-01 回退:二遍改用离线模型的整条改动**已撤**,不得擅自重开
 
@@ -160,7 +160,7 @@ SAINPUT_FINAL_WAIT_MS=400,脚本在 2500ms 后才给真 final:
 **回退后仍然存在的真 bug(必须修好才能再谈这个功能)**:跨句重复上屏。
 - 位置:`main.rs:2197-2200`(`defer_reset=true`)与 `main.rs:2244-2245`(新句开始把 `stage` 回 Recording、`finalized` 清掉);
 - 现象:上一句的 final 迟到(离线重解让它晚 ~2 秒),这 2 秒里用户已在说下一句 → 迟到的 final 落到**新句**的记账上 → 一句话贴两遍;
-- 日志实证:`sainput-20261031-235659.log` 里同一文本出现两次,`F 191203ms (cap)` 与 `F 193166ms (finish)` 相隔 2 秒;
+- 日志实证:`ouuutput-20261031-235659.log` 里同一文本出现两次,`F 191203ms (cap)` 与 `F 193166ms (finish)` 相隔 2 秒;
 - **正确修法(独立调研结论,与我的现场判断一致)**:final 必须按**句 id** 归属,不能贴到"当前 stage"上 ——
   即协议里给 final 带句号/世代号,`defer_reset` 与迟到帧的归属都按它判,而不是按 `stage`。
 - 另一个坑(独立调研指出):cap 那版先上屏、真 final 后到时要"退格改写",改写幅度 > `max_bs*4`(默认 32 字)时
@@ -170,7 +170,7 @@ SAINPUT_FINAL_WAIT_MS=400,脚本在 2500ms 后才给真 final:
 **若将来真要上"离线整段重解",正确顺序**(独立调研 + 现场经验一致):
 1. 先在侧车把离线档作为二遍的**一个分支**(默认关);
 2. **再修引擎的句 id 归属**(上面那条)—— 这是前置条件,不是可选项;
-3. 最后才谈把 `SAINPUT_FINAL_WAIT_MS` 放大;
+3. 最后才谈把 `OUUUTPUT_FINAL_WAIT_MS` 放大;
 4. GPU 版(SenseVoice-GPU / whisper)不作为第一步:同权重换 GPU 精度不涨白背显存,whisper 每句 +1.2~2.7s,
    且与 onnxruntime 同进程有 MKL 冲突史;真要用只能另起独立进程。
 
@@ -183,7 +183,7 @@ SAINPUT_FINAL_WAIT_MS=400,脚本在 2500ms 后才给真 final:
    结果剥掉 `<|zh|><|NEUTRAL|>` 这类标签;离线结果**不再**过中文标点/ITN(它自带,再过一遍会改坏);
 2. 新增**防凭空造字**:流式那一遍一个字都没有 = 这句本来就是静音,二遍结果一概不采纳
    (实测离线模型在近静音段会写 `The.` / `Okay.`,流式同段给空);
-3. `crates/sainput-cli/src/main.rs`:`DEFAULT_TWOPASS_MODEL` → SenseVoice;`twopass` **默认开**
+3. `crates/ouuutput-cli/src/main.rs`:`DEFAULT_TWOPASS_MODEL` → SenseVoice;`twopass` **默认开**
    (缺模型时降级成单遍并提示,不再直接启动失败);`--no-twopass` 可退回;
 4. **二遍模式下尾巴自动收紧**(最多 400ms、不补 480ms 底噪):那段等待只为让*流式*模型吐右上下文,
    而它的定稿会被二遍覆盖 —— 不收紧就是白等(实测松键后 1.85s 才出字,其中大半是这段空转)。
@@ -236,7 +236,7 @@ SAINPUT_FINAL_WAIT_MS=400,脚本在 2500ms 后才给真 final:
 - 有了它就能对**同一批真实音频**跑不同模型/参数做盲测:速度(同一台机的 RTF)与文本差异,直接出一张对照表;
 - 用户只需要"继续像平时一样用",不需要配合任何测试。
 
-# sainput 剩余工程总清单(M3 起)
+# ouuutput 剩余工程总清单(M3 起)
 
 > 这是**剩余工作的单一真相源**。`PLAN.md` 是立项期的方案与路线图,`HANDOFF.md` 是接手状态,
 > 本文件是"还剩什么、按什么顺序做、怎么验收"。任务状态只在本文件更新。
@@ -245,7 +245,7 @@ SAINPUT_FINAL_WAIT_MS=400,脚本在 2500ms 后才给真 final:
 
 ## 0. 一句话
 
-sainput 的快通道(M1)与质量层(M2)已交付并冻结;剩下的是**上屏通道的工程化**(M3,以 TSF 为核心)、
+ouuutput 的快通道(M1)与质量层(M2)已交付并冻结;剩下的是**上屏通道的工程化**(M3,以 TSF 为核心)、
 慢路径纠错(M4)、以及一批已知限制与体检遗留的小项。
 
 ---
@@ -305,10 +305,10 @@ sainput 的快通道(M1)与质量层(M2)已交付并冻结;剩下的是**上屏�
 
 | 编号 | 风险 | 判定时机 | 回退方案 |
 |---|---|---|---|
-| **R1** | TSF 无法"按线程/按进程激活自己的 TIP"而不动用户的全局输入法状态 | T1.1 ✅ **已命中** | **实测(2026-10-31):激活即改全局默认**,两条激活路径都一样。→ TSF 降级为**可选模式**:由用户显式切到 sainput 输入法(语言栏 / Win+Space),产品**不主动** `ActivateProfile`;主力价值收窄为**管理员权限窗口**(SendInput 被 UIPI 挡死,那里本来没有别的办法)。日常窗口继续走 SendInput / WM_CHAR |
+| **R1** | TSF 无法"按线程/按进程激活自己的 TIP"而不动用户的全局输入法状态 | T1.1 ✅ **已命中** | **实测(2026-10-31):激活即改全局默认**,两条激活路径都一样。→ TSF 降级为**可选模式**:由用户显式切到 ouuutput 输入法(语言栏 / Win+Space),产品**不主动** `ActivateProfile`;主力价值收窄为**管理员权限窗口**(SendInput 被 UIPI 挡死,那里本来没有别的办法)。日常窗口继续走 SendInput / WM_CHAR |
 | **R2** | 标准 EDIT 在 TIP 激活后仍拿不到文本存储;自绘/Qt/Electron 类应用干脆不支持组合态 | T1.1 / T3.2 | TSF 只对支持 TSF 的应用生效,其余自动回退现有通道(本来就是双轨设计,T1.6 的判据要按这个写) |
 | **R3** | 管理员权限窗口仍然打不进(TSF 理论上不受 UIPI 限制,但必须实测) | T3.1 | 备选「UIAccess 清单 + 代码签名」(`FROZEN-v0.2.1.md` 已记过这条;需要一次签名与安装动作) |
-| **R4** | 与水杉/微软拼音互斥(一个线程同时只有一个键盘 TIP) | T2.5 | 与水杉/微软拼音共存策略 | 不抢默认、不吞按键、热键不撞 | A | ✅ **策略 = "只做列表里的一员"(2026-10-31 复核)**。①**从不程序化改用户的输入法**:`grep ActivateProfile|SetDefaultLanguageProfile|RegisterProfile` 在 `sainput-cli`/`sainput-core` 里**零命中** —— 产品侧与 TSF 的接触面只有"用"(`TsfComposer::new` / `available(pid)` / `pid_of_window`),激活/注册全部由**用户**在系统里选、或开发期脚本一次性完成(§T1.3)。这条是共存的根:**我们不抢默认**。②**不吞按键**:薄壳没实现 `ITfKeyEventSink`,按键原样落到应用 —— 实测证据是这一整天里薄壳被 msctf 装进 ego/explorer/记事本/herdr-app/WinRR **零 panic**,用户全程正常打字。③**热键不撞**:我们的触发是**鼠标侧键 X1**,与水杉/微软拼音的键盘热键不在一个键域。⚠ 未验证的那半("用户主动把我们切成当前输入法"之后的行为)归 T1.4/T3.2 —— 那需要组合态能落地 |
+| **R4** | 与水杉/微软拼音互斥(一个线程同时只有一个键盘 TIP) | T2.5 | 与水杉/微软拼音共存策略 | 不抢默认、不吞按键、热键不撞 | A | ✅ **策略 = "只做列表里的一员"(2026-10-31 复核)**。①**从不程序化改用户的输入法**:`grep ActivateProfile|SetDefaultLanguageProfile|RegisterProfile` 在 `ouuutput-cli`/`ouuutput-core` 里**零命中** —— 产品侧与 TSF 的接触面只有"用"(`TsfComposer::new` / `available(pid)` / `pid_of_window`),激活/注册全部由**用户**在系统里选、或开发期脚本一次性完成(§T1.3)。这条是共存的根:**我们不抢默认**。②**不吞按键**:薄壳没实现 `ITfKeyEventSink`,按键原样落到应用 —— 实测证据是这一整天里薄壳被 msctf 装进 ego/explorer/记事本/herdr-app/WinRR **零 panic**,用户全程正常打字。③**热键不撞**:我们的触发是**鼠标侧键 X1**,与水杉/微软拼音的键盘热键不在一个键域。⚠ 未验证的那半("用户主动把我们切成当前输入法"之后的行为)归 T1.4/T3.2 —— 那需要组合态能落地 |
 
 **R1 是整个 M3 的可行性门**:T1.1 不过,先停下来改方案,不往上堆工程量。
 
@@ -323,8 +323,8 @@ sainput 的快通道(M1)与质量层(M2)已交付并冻结;剩下的是**上屏�
 | ID | 任务 | 验收判据 | 级别 | 状态 |
 |---|---|---|---|---|
 | T0.1 | `tools/hdesk.py`:自建私有桌面启动器(建桌面 / 起进程 / 等退出或常驻 / 枚举窗口计数 / 回收) | 能把一个窗口程序跑在私有桌面,且 console 桌面枚举该 pid 顶层窗口 = 0 | A | ✅ |
-| T0.2 | `crates/sainput-tsf-host`:测试目标壳(窗口 + `EDIT` + 落日志)+ `hdesk readtext` 跨进程读回 | 私有桌面上自检通过,内容一字不差写进日志 | A | ✅ |
-| T0.3 | 引擎确定性入口:`sainput selftest compose <文本> --hwnd … --mode wmchar`(不走麦克风/热键;可 `--frames` 模拟流式、`--pre` 先投错版) | 私有桌面宿主壳里读回一字不差 | A | ✅ |
+| T0.2 | `crates/ouuutput-tsf-host`:测试目标壳(窗口 + `EDIT` + 落日志)+ `hdesk readtext` 跨进程读回 | 私有桌面上自检通过,内容一字不差写进日志 | A | ✅ |
+| T0.3 | 引擎确定性入口:`ouuutput selftest compose <文本> --hwnd … --mode wmchar`(不走麦克风/热键;可 `--frames` 模拟流式、`--pre` 先投错版) | 私有桌面宿主壳里读回一字不差 | A | ✅ |
 
 ### 阶段 1 —— TSF 最小可运行纵向切片
 
@@ -336,9 +336,9 @@ sainput 的快通道(M1)与质量层(M2)已交付并冻结;剩下的是**上屏�
 | ID | 任务 | 验收判据 | 级别 | 状态 |
 |---|---|---|---|---|
 | T1.1 | **可行性 spike**:注册后实测「按进程激活自己的 TIP」的两件事 | 1 用户全局默认输入法不变 2 `ITfThreadMgr::GetFocus` 非空 | A | ✅ **已过门(2026-10-31)**:2 成立(激活后文本存储出现,组合态技术上可达);**1 不成立** —— 激活会把我们的 TIP 设成该语言的默认,别的进程跟着加载它。判决与处置见风险表 R1 | 🔄(2026-10-31 更新)**自变量找到了:桌面**。同一份代码、同一台机:私有桌面(hdesk)上 `ActivateProfile(FORPROCESS)` 直接 `E_FAIL(0x80004005)` → `GetFocus` 永远空;**真桌面 + RichEdit** 上 `hr=0x0` → `GetFocus hr=0x0 有文本存储`。所以之前记的"msctf 只给 ITfCompartmentMgr / E_NOINTERFACE / TF_E_EMPTYCONTEXT"全是私有桌面的假象。**另一条实测结论(会影响设计)**:`ActivateProfile(FORPROCESS)` 会**连带改掉该语言的默认 profile** —— 别的进程也跟着加载我们(上次真把用户中文输入弄坏过一次)。脚本/宿主因此必须"先存后还",且**还回去的确认要在新进程里读**(同进程读回是旧值,会谎报"没还原成功")。
-| T1.2 | ✅ `crates/sainput-tsf`(cdylib,手写 COM)+ 宿主 `--load-tip`(走 msctf 装 TIP 的整条链) | DLL 被宿主加载并 `Activate` 成功 | A | ✅ |
+| T1.2 | ✅ `crates/ouuutput-tsf`(cdylib,手写 COM)+ 宿主 `--load-tip`(走 msctf 装 TIP 的整条链) | DLL 被宿主加载并 `Activate` 成功 | A | ✅ |
 | T1.3 | ✅ 注册器 `tools/tsf_register.ps1`(register/unregister/verify,dry-run 默认) | 注册后 TIP 列表可见;卸载后注册表无残留 | B(一次性) | ✅ **注册已验证**:在真实会话里 `ITfInputProcessorProfileMgr::EnumProfiles` 看得到我们(`clsid=FCC45A5E-… profile=6A1F2B7C-…`,就在水杉后面)。✅ **卸载路径已验**(2026-10-31,用户点了一次 UAC):`unregister -Apply` → `verify: NOT registered`,注册表无残留 |
-| T1.4 | 组合态上屏:`StartComposition` → 逐帧 `SetText` → `EndComposition` | 在**用户已切到我们输入法的窗口里**,EDIT 文本等于期望值;中途不留半句残字 | C | 🔄 **根因已定位到位(2026-10-31 重跑,推翻旧结论)**:①旧记录里的"E_NOINTERFACE / TF_E_EMPTYCONTEXT"是**私有桌面**造成的假象 —— 真桌面 + RichEdit 下 `GetFocus hr=0x0` 拿到真 `ITfContext`,`QI(ITfContextComposition) hr=0x0` 成功;②真正卡住的是 **`StartComposition`**:薄壳的管道线程(非属主线程)直接拿主线程取到的 TSF 接口调,公寓模型下 msctf 在等属主线程 → 死锁(实测:会话跑在"本线程=管道线程"上,日志停在"准备 StartComposition")。**修法**:组合态**回到拥有该上下文的线程执行** —— 在属主线程(Activate 那次调用所在线程)建一个隐藏窗口,管道线程 `PostMessage` 请求 + 等回执。需要时把宿主换成真靶子(记事本/Word/飞书,RichEdit 才有真存储;经典 EDIT 不提供) |**又往前走了一层(同日再测,仍然推翻上一条)**:按"回到属主线程执行"改造后(薄壳在属主线程建消息窗口,管道线程 `PostMessage` + 等回执,超时 2.5s 且**熔断 30s**),`StartComposition` **在属主线程上照样卡** —— 所以"跨线程/公寓"这个诊断也不成立。已经排除的:线程(投递/直调两条路都试过)、锁(状态锁前后都有日志、干净)、上下文与接口(QI 成功)、宿主卡死(0 次 panic,三条回归全过)。**下一步的对照组**:换**真应用**当靶子(我们 harness 里的 RichEdit 与真实应用可能不同;Win11 记事本是打包应用,窗口归属别的进程,这条路没走通 → 用 Word/飞书)。现在的行为是安全的:拿不到组合态就 2.5s 内回 E_FAIL 并熔断,引擎按 T1.6 退一档,用户那 一句不丢。 |**书签(2026-10-31 收尾时的新证据 + 下一步假设)**:①`--tfinit`(建窗口前先 Activate)在 rich50 上**反而让文本存储消失**(`GetFocus hr=0x1 dim=null`),不带它才有存储 —— 老记录里"顺序错了真控件就不注册存储"这条对 rich50 不成立,已记进宿主注释;②目前最深的一次仍然停在 `StartComposition`。**下一步的假设**:我们传给它的 `ITfCompositionSink` 是个**裸指针 + 没有编组支持**(`QueryInterface(IMarshal)` 直接 E_NOINTERFACE),msctf 在跨线程/跨公寓时拿它编组 → 卡在 COM 调用里。修法:让 sink 聚合`CoCreateFreeThreadedMarshaler`(或放进 GIT)。**这条假设没验,写在这里免得下次从零推** |**第三次证伪(2026-10-31 当天第三轮)**:给 sink 聚合了**自由线程编组器**(`CoCreateFreeThreadedMarshaler`)—— 日志确认 `compose sink 已聚合自由线程编组器 ftm=0x...`,**`StartComposition` 照样卡**。所以"回调对象不可编组"也不成立。这一轮同时验到了护栏的价值:超时 2.5s 回 E_FAIL + **熔断 30s**,引擎侧按设计退档(`main.rs` 的 `tsf_fallback`:组合态下 injected 为空,退档即整句一次落地,**不丢字**)。⚠ **注册表现在还指着开发目录**(`target-t14`,version 0.2.5-ftm)—— 因为正式目录那份 DLL 被用户已打开的应用锁着改不了;T1.4 收尾时要把它指回正式构建(一次 UAC)。**下一个决定性实验:换真应用当靶子**(Word/飞书)。宿主里的 RichEdit 两条路都不适配:组合态卡在 StartComposition,而退档的 WM_CHAR 又会被那个控件上的输入法吃掉(引擎自己会打这条警告)。 |**第四次推进(2026-10-31 同日,这次是修缺陷不是证伪)**:在 ego(真 Chromium 应用)上实测到`compose request:没有上下文(attach 没成功)` —— **我们的上下文只在 `Activate` 那一刻取一次是错的**:真实应用被激活时通常没有焦点输入框(用户是后来才点进去的),而我们的 harness 之所以"有上下文"只是因为它把控件建在了激活之前(靶子的巧合把缺陷盖住了)。已改为 TSF 原本的机制:实现 `ITfThreadMgrEventSink::OnSetFocus` 并 `ITfSource::AdviseSink` 挂上,**焦点一变就重挂上下文**。实测(harness):`焦点 sink 挂载 hr=0x0 cookie=67108866` → 随后收到 `OnSetFocus:焦点离开文档,清空上下文` 与 `OnSetFocus:上下文已更新 ctx=0x... hr=0x0` —— 挂上并真的会触发。**下一个决定性实验**:让真应用(浏览器)用上新 DLL(它已按注册表加载,需重启进程)后,点进文本框再灌字 |**📦 归档决策(2026-10-31,用户拍板)**:TSF 组合态**不做进产品默认路径**,系统里的 TIP 注册已撤销(`verify: NOT-registered`,输入法列表恢复原样)。理由(用户原话):"这个 sainput 只有语音功能啊 不能正常打字了啊,你做进去又有什么意义" —— Windows 只给一条门:想不经按键写进应用编辑框,就必须以键盘类输入法(TIP)身份进语言列表;而我们的产品**只做语音**,一旦被切过去,用户的中文键盘输入就没了。**收益 < 代价**,所以:①代码与证据全部留在仓库(下面那条长长的探路记录就是资产);②`tools/tsf_register.ps1` 的注册**只在做实验时手动用**,不进任何默认流程;③主线路仍是按键/消息两条通道(它们已经在跑);④`StartComposition` 的最后一堵墙未破 —— 四次证伪 + 两个真缺陷已修,若将来要做,起手就是"换真应用 + 先把 `--tfinit` 关掉"(见上文)。⚠ 附带发现待修:薄壳的 trace 日志在浏览器这种沙箱进程里**写不进去**(`%TEMP%` 里那份最后更新停在 20:43),以后要查这种现场得先让它写到宿主目录或 `%LOCALAPPDATA%` |
+| T1.4 | 组合态上屏:`StartComposition` → 逐帧 `SetText` → `EndComposition` | 在**用户已切到我们输入法的窗口里**,EDIT 文本等于期望值;中途不留半句残字 | C | 🔄 **根因已定位到位(2026-10-31 重跑,推翻旧结论)**:①旧记录里的"E_NOINTERFACE / TF_E_EMPTYCONTEXT"是**私有桌面**造成的假象 —— 真桌面 + RichEdit 下 `GetFocus hr=0x0` 拿到真 `ITfContext`,`QI(ITfContextComposition) hr=0x0` 成功;②真正卡住的是 **`StartComposition`**:薄壳的管道线程(非属主线程)直接拿主线程取到的 TSF 接口调,公寓模型下 msctf 在等属主线程 → 死锁(实测:会话跑在"本线程=管道线程"上,日志停在"准备 StartComposition")。**修法**:组合态**回到拥有该上下文的线程执行** —— 在属主线程(Activate 那次调用所在线程)建一个隐藏窗口,管道线程 `PostMessage` 请求 + 等回执。需要时把宿主换成真靶子(记事本/Word/飞书,RichEdit 才有真存储;经典 EDIT 不提供) |**又往前走了一层(同日再测,仍然推翻上一条)**:按"回到属主线程执行"改造后(薄壳在属主线程建消息窗口,管道线程 `PostMessage` + 等回执,超时 2.5s 且**熔断 30s**),`StartComposition` **在属主线程上照样卡** —— 所以"跨线程/公寓"这个诊断也不成立。已经排除的:线程(投递/直调两条路都试过)、锁(状态锁前后都有日志、干净)、上下文与接口(QI 成功)、宿主卡死(0 次 panic,三条回归全过)。**下一步的对照组**:换**真应用**当靶子(我们 harness 里的 RichEdit 与真实应用可能不同;Win11 记事本是打包应用,窗口归属别的进程,这条路没走通 → 用 Word/飞书)。现在的行为是安全的:拿不到组合态就 2.5s 内回 E_FAIL 并熔断,引擎按 T1.6 退一档,用户那 一句不丢。 |**书签(2026-10-31 收尾时的新证据 + 下一步假设)**:①`--tfinit`(建窗口前先 Activate)在 rich50 上**反而让文本存储消失**(`GetFocus hr=0x1 dim=null`),不带它才有存储 —— 老记录里"顺序错了真控件就不注册存储"这条对 rich50 不成立,已记进宿主注释;②目前最深的一次仍然停在 `StartComposition`。**下一步的假设**:我们传给它的 `ITfCompositionSink` 是个**裸指针 + 没有编组支持**(`QueryInterface(IMarshal)` 直接 E_NOINTERFACE),msctf 在跨线程/跨公寓时拿它编组 → 卡在 COM 调用里。修法:让 sink 聚合`CoCreateFreeThreadedMarshaler`(或放进 GIT)。**这条假设没验,写在这里免得下次从零推** |**第三次证伪(2026-10-31 当天第三轮)**:给 sink 聚合了**自由线程编组器**(`CoCreateFreeThreadedMarshaler`)—— 日志确认 `compose sink 已聚合自由线程编组器 ftm=0x...`,**`StartComposition` 照样卡**。所以"回调对象不可编组"也不成立。这一轮同时验到了护栏的价值:超时 2.5s 回 E_FAIL + **熔断 30s**,引擎侧按设计退档(`main.rs` 的 `tsf_fallback`:组合态下 injected 为空,退档即整句一次落地,**不丢字**)。⚠ **注册表现在还指着开发目录**(`target-t14`,version 0.2.5-ftm)—— 因为正式目录那份 DLL 被用户已打开的应用锁着改不了;T1.4 收尾时要把它指回正式构建(一次 UAC)。**下一个决定性实验:换真应用当靶子**(Word/飞书)。宿主里的 RichEdit 两条路都不适配:组合态卡在 StartComposition,而退档的 WM_CHAR 又会被那个控件上的输入法吃掉(引擎自己会打这条警告)。 |**第四次推进(2026-10-31 同日,这次是修缺陷不是证伪)**:在 ego(真 Chromium 应用)上实测到`compose request:没有上下文(attach 没成功)` —— **我们的上下文只在 `Activate` 那一刻取一次是错的**:真实应用被激活时通常没有焦点输入框(用户是后来才点进去的),而我们的 harness 之所以"有上下文"只是因为它把控件建在了激活之前(靶子的巧合把缺陷盖住了)。已改为 TSF 原本的机制:实现 `ITfThreadMgrEventSink::OnSetFocus` 并 `ITfSource::AdviseSink` 挂上,**焦点一变就重挂上下文**。实测(harness):`焦点 sink 挂载 hr=0x0 cookie=67108866` → 随后收到 `OnSetFocus:焦点离开文档,清空上下文` 与 `OnSetFocus:上下文已更新 ctx=0x... hr=0x0` —— 挂上并真的会触发。**下一个决定性实验**:让真应用(浏览器)用上新 DLL(它已按注册表加载,需重启进程)后,点进文本框再灌字 |**📦 归档决策(2026-10-31,用户拍板)**:TSF 组合态**不做进产品默认路径**,系统里的 TIP 注册已撤销(`verify: NOT-registered`,输入法列表恢复原样)。理由(用户原话):"这个 ouuutput 只有语音功能啊 不能正常打字了啊,你做进去又有什么意义" —— Windows 只给一条门:想不经按键写进应用编辑框,就必须以键盘类输入法(TIP)身份进语言列表;而我们的产品**只做语音**,一旦被切过去,用户的中文键盘输入就没了。**收益 < 代价**,所以:①代码与证据全部留在仓库(下面那条长长的探路记录就是资产);②`tools/tsf_register.ps1` 的注册**只在做实验时手动用**,不进任何默认流程;③主线路仍是按键/消息两条通道(它们已经在跑);④`StartComposition` 的最后一堵墙未破 —— 四次证伪 + 两个真缺陷已修,若将来要做,起手就是"换真应用 + 先把 `--tfinit` 关掉"(见上文)。⚠ 附带发现待修:薄壳的 trace 日志在浏览器这种沙箱进程里**写不进去**(`%TEMP%` 里那份最后更新停在 20:43),以后要查这种现场得先让它写到宿主目录或 `%LOCALAPPDATA%` |
 | T1.5 | ✅ 跨进程通道:引擎 ↔ DLL 命名管道(`compose`/`commit`/`cancel` + 版本握手) | 引擎发一句,宿主窗口一次到位;断开时链路干净退出 | A | ✅ **两侧都通**(18 条判据全过)。实测引擎在 console 桌面、薄壳在私有桌面宿主里,3 帧 + 定稿全部落地 —— 管道跨桌面。"窗口一次到位"要等 T1.4(卡注册) |
 | T1.6 | ✅ Rust 侧 `TsfComposer` 接上 `Composer` trait;策略沿用**既有** `ime_wmchar` 键新增 `tsf` 头(不另起 `tsf` 键 —— 上屏方式只该有一个真相源);可用性判据 = 目标进程的管道在不在(`WaitNamedPipeW(…,0)`,不占连接槽) | `tsf` 下薄壳活着的窗口走 TSF、其余按 `auto` 判;没端点绝不误伤 | A | ✅ |
 | T1.7 | ✅ 位数:i686 + x86_64 两个 DLL(32 位走 **MSVC** 目标,w64devkit 没有 i686 运行时时才发现) | 32 位宿主与 64 位宿主都能上屏 | A | ✅ 32 位那一套(薄壳+宿主)跑完 `test_tsf_activate` / `test_tsf_pipe` / `test_tsf_panic` 三条全过;顺带修掉两个真 32 位 bug |
@@ -350,7 +350,7 @@ sainput 的快通道(M1)与质量层(M2)已交付并冻结;剩下的是**上屏�
 | T2.1 | ✅ 宿主进程内异常隔离:每个 COM 入口 `catch_unwind` + panic hook 写进薄壳日志(宿主没控制台,默认 hook 等于丢掉) | 注入失败只丢本句,宿主进程存活 | A | ✅ `tools/test_tsf_panic.py`:`Activate` 被强制 panic 后返回 `E_FAIL`、宿主正常退出、后续步骤照跑 |
 | T2.2 | 生命周期:失焦 / 切换文档 / 应用退出 / 超时未提交 → 取消组合 | 每种情形都不留半句、不卡住 | A | 🔄 **超时/退出那条已做并验**:组合态闲置 5s 自动取消(看门狗),`tools/test_tsf_pipe.py` 有专项。"应用退出"不需要额外机制 —— 注意**连接是每请求一条**(引擎逐帧短连),所以"断连即取消"是**错**的(会把正常流式打断);引擎真的走了 = 没有活动 = 5s 看门狗收掉,**这是设计而非缺口**。另一条明确**不做**的:`Deactivate` 里直接调 TSF 取消(那是在 msctf 调我们的线程上回调 TSF,会把宿主应用冻住 —— 模块注释里已有同类教训)。**剩下的"失焦/切文档"是 T1.4 的直接依赖**(没有可用的组合态就无从取消)** → 随 T1.4 一起** |
 | T2.3 | ✅ 幂等与乱序:协议带**句子序号**(u64,按时钟播种),序号 ≤ 已定稿到 的帧一律丢弃 | 不重复上屏、不写进错误的句子 | A | ✅ `test_tsf_pipe.py` 四条专项(重复定稿/更小序号/旧句迟到 S/新句照常);**顺带修掉一个真缺陷**:序号从 1 数起时引擎一重启就会让之后每一句都被当迟到帧丢掉 |
-| T2.4 | 🔄 升级/降级:**版本不匹配时自动退一档**(不丢整句)+ 注册表残留清理 | 装旧版不炸、装新版不重复注册 | B | 🔄 **前半段已做并实测**:引擎握手失败 → 记一条「TSF 通道不可用」→ 这一句改用 auto 那条通道**重试一次**(组合态下 injected 为空,重试就是整句落地,不丢字),并且退档是粘的(不再逐句撞坏通道)。`tools/test_tsf_fallback.py` 4 条判据全过(薄壳用 `SAINPUT_TSF_PROTOCOL_FAKE` 谎报版本模拟真故障)。后半段(装/卸/残留)**已收口**(2026-10-31,一次升权跑完 `tools/t24_cycle.ps1`:装旧版不炸 / 升级换版本与 DLL / 重复注册不新增 profile 条目 / `verify` 不是 STALE,4 组判据全过;系统里留的是正式构建那份)  ✅ 后半段里**不需要 UAC 的那半**做完了(2026-10-31):① `tools/tsf_register.ps1` 加**开发产物闸门** —— 把 `target-test`/`debug` 路径注册进系统一律拒绝(除非显式 `-AllowDev`),正斜杠也拦(只认反斜杠等于闸门形同虚设,实测踩过);② `verify` 从'打印状态'升级成**给结论 + 退出码**(`OK`/`STALE(dll-not-found|dll-mismatch|dev-build-registered)`/`NOT-REGISTERED`,0/4/1),注册时写 `SainputVersion`+`SainputRegisteredAt`,装新版/回旧版后一眼看得出装的是哪份;③ 脚本补了 UTF-8 BOM(PS 5.1 读无 BOM 的中文注释会吞掉下一行代码 —— 而且脚本输出在中文机上是 GBK,所以机器可检的判据行一律用 ASCII);④ 回归 `tools/test_tsf_register.py` **10 条全过**(结论⟺退出码、被拒时注册表一字未改、提权闸门、正斜杠、BOM)。**实测抓到现行**:这台机器现在就是 `verdict: STALE(dev-build-registered)` —— 早先留下的那条指向 target-test 的注册,脚本现在会自己说出来(清理仍需一次 UAC,见 HANDOFF §7-10)。真正装/卸那一次仍等 UAC |
+| T2.4 | 🔄 升级/降级:**版本不匹配时自动退一档**(不丢整句)+ 注册表残留清理 | 装旧版不炸、装新版不重复注册 | B | 🔄 **前半段已做并实测**:引擎握手失败 → 记一条「TSF 通道不可用」→ 这一句改用 auto 那条通道**重试一次**(组合态下 injected 为空,重试就是整句落地,不丢字),并且退档是粘的(不再逐句撞坏通道)。`tools/test_tsf_fallback.py` 4 条判据全过(薄壳用 `OUUUTPUT_TSF_PROTOCOL_FAKE` 谎报版本模拟真故障)。后半段(装/卸/残留)**已收口**(2026-10-31,一次升权跑完 `tools/t24_cycle.ps1`:装旧版不炸 / 升级换版本与 DLL / 重复注册不新增 profile 条目 / `verify` 不是 STALE,4 组判据全过;系统里留的是正式构建那份)  ✅ 后半段里**不需要 UAC 的那半**做完了(2026-10-31):① `tools/tsf_register.ps1` 加**开发产物闸门** —— 把 `target-test`/`debug` 路径注册进系统一律拒绝(除非显式 `-AllowDev`),正斜杠也拦(只认反斜杠等于闸门形同虚设,实测踩过);② `verify` 从'打印状态'升级成**给结论 + 退出码**(`OK`/`STALE(dll-not-found|dll-mismatch|dev-build-registered)`/`NOT-REGISTERED`,0/4/1),注册时写 `OuuutputVersion`+`OuuutputRegisteredAt`,装新版/回旧版后一眼看得出装的是哪份;③ 脚本补了 UTF-8 BOM(PS 5.1 读无 BOM 的中文注释会吞掉下一行代码 —— 而且脚本输出在中文机上是 GBK,所以机器可检的判据行一律用 ASCII);④ 回归 `tools/test_tsf_register.py` **10 条全过**(结论⟺退出码、被拒时注册表一字未改、提权闸门、正斜杠、BOM)。**实测抓到现行**:这台机器现在就是 `verdict: STALE(dev-build-registered)` —— 早先留下的那条指向 target-test 的注册,脚本现在会自己说出来(清理仍需一次 UAC,见 HANDOFF §7-10)。真正装/卸那一次仍等 UAC |
 | T2.5 | 与水杉/微软拼音共存策略(**升级为设计任务**:TSF 模式的开关与用户指引 = 语言栏 / Win+Space;硬规则:产品不主动 `ActivateProfile`) | 用户日常输入法不受影响 | B | ⬜ |
 | **T2.6** | **激活安全闸**:任何程序化激活都必须「先记下原默认 → 激活 → 立即还原」,并留一条一行还原命令;harness 已实现(`profile.rs` 的 save/restore + `--set-default`) | 激活前后从一个**旁观进程**看默认输入法完全一致 | A | 🔄 harness 已做并实测(还原确认);产品侧按 T2.5 硬规则不接线 |
 
@@ -392,7 +392,7 @@ sainput 的快通道(M1)与质量层(M2)已交付并冻结;剩下的是**上屏�
 | T6.4 | overlay DWrite 资源缓存(factory / TextFormat / Brush) | 每次上屏的绘制开销下降且无观感差异 | A | ✅ 2026-10-31:D2D 的 factory/target 早就缓存了(见 `with_target` 里那段 247ms/帧的教训),漏的是**文字**这条路上每帧重建的三样。现在 factory 进程级共享、TextFormat **按字号缓存**(字号 = `BAR_FONT×DPI 缩放`,改 DPI 自动重建)、画刷绑目标缓存并在目标重建时丢弃。判据:`examples/dwritecache.rs` 探针(真窗口里推 30 帧)—— **缓存生效 = 1/1/1,自校准(每帧清缓存 = 旧行为)= 30/30/30**,探针自报 `SENSITIVE` 证明这条判据真的会红。**不做成单测**:内存 DC + D2D 目标那条路上 DWrite 的**文字**绘制会挂住(实测 240s 超时),生产里画字是在有窗口、有消息循环的线程上。踩过的两个坑都记在代码里:计数与缓存都在 overlay 线程的 `thread_local` 里(放全局原子才能跨线程读;跨线程丢缓存必须走标志位,直接清只会清到自己那份空缓存) |
 | T6.5 | 采集首帧粒度 32ms → 16ms(带解码开销复测) | 首字延迟下降且 CPU 可接受 | A | ✅ **实测后决定不改**(2026-10-31):同一段 wav、各 3 轮,32ms 首字延迟中位 **2502ms**/解码 3.15ms 每次;16ms **2514ms**/3.23ms 每次 —— 反向 12ms(一帧之内)、开销还略涨。原因:模型内部分块 160ms 是 32ms 的**整数倍**,帧粒度不引入额外延迟;首字延迟由模型上下文需求主导(~2.5s)。度量工具 `tools/probe_frame_granularity.py` 留下(以后问"某改动值不值"直接跑它) |
 | T6.6 | edge 动画 60→30fps 开关(可选) | 省 CPU 且观感可接受 | A | ✅ 2026-10-31:配置项 `edge_fps`(60/30,其它值就近夹档)+ 托盘「边缘光 → 边缘光帧率」两档(现场切、写回配置)。**隔离实测**(`tools/probe_edge_cpu.py`:关/60/30 三组,各取 20 秒窗口的进程 CPU 时间差):边缘光自身 **60fps = 0.578 核,30fps = 0.255 核 → 降帧率省 56%(0.32 核)**。观感那条的关键:缓动原来写死"每帧走 6%",帧率砍半会把淡入淡出**拖慢一倍**(用户看到的是变迟钝,不是省电)——改成按**真实间隔**折算等效系数(`1-(1-0.06)^(dt/16ms)`),两档**时长一致**、只有平滑度差异;重绘闸门(`edge_due`)只作用在边缘光模式,悬浮条的波形节奏不受影响。回归:`tools/test_edge_params.py` 扩到 4 条(含帧率档→写回配置) |
-| T6.7 | 崩溃前补发 keyup(进程外看门狗尽力而为) | 硬崩后按键不残留 | A | ✅ 2026-10-31:引擎装钩子时把"钩子活着"写进**命名共享内存**(`Local\sainput-guard-v1[-<NS>]`),并用同一 exe 的隐藏子命令 `guard --parent <pid> --log <path>` 拉起**进程外看门狗**:父进程一死就读标志,为 1 就 `panic_release()` 补发全部抬起(看门狗进程里没有钩子,注入即"先卸钩子再注入"那条正确顺序);日志统一写 `logs/guard.log`,每行带 `parent=<pid>`。命名空间隔离(`SAINPUT_SINGLE_NS`)避免两个引擎共用一个标志。回归 `tools/test_keyup_guard.py`(硬杀真引擎→必须出现 `VIOLENT-EXIT`;父进程没装过钩子→**绝不允许**补发)+ 单测(标志置位/清零语义 —— 顺手抓到我自己把 `FILE_MAP_READ` 当可写视图用、`PAGE_READWRITE` 与它同为 0x04 的那个 ACCESS_VIOLATION) |
+| T6.7 | 崩溃前补发 keyup(进程外看门狗尽力而为) | 硬崩后按键不残留 | A | ✅ 2026-10-31:引擎装钩子时把"钩子活着"写进**命名共享内存**(`Local\ouuutput-guard-v1[-<NS>]`),并用同一 exe 的隐藏子命令 `guard --parent <pid> --log <path>` 拉起**进程外看门狗**:父进程一死就读标志,为 1 就 `panic_release()` 补发全部抬起(看门狗进程里没有钩子,注入即"先卸钩子再注入"那条正确顺序);日志统一写 `logs/guard.log`,每行带 `parent=<pid>`。命名空间隔离(`OUUUTPUT_SINGLE_NS`)避免两个引擎共用一个标志。回归 `tools/test_keyup_guard.py`(硬杀真引擎→必须出现 `VIOLENT-EXIT`;父进程没装过钩子→**绝不允许**补发)+ 单测(标志置位/清零语义 —— 顺手抓到我自己把 `FILE_MAP_READ` 当可写视图用、`PAGE_READWRITE` 与它同为 0x04 的那个 ACCESS_VIOLATION) |
 
 #### 体检(2026-10-31 报告)已闭环项 —— 别再重修一遍
 

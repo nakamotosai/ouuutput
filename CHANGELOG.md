@@ -7,6 +7,29 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-08
+
+### Changed
+
+- **改名：sainput → ouuutput 输入法**。这是产品品牌统一（ouuut.com）的一步:
+  可执行文件 / crate / 配置 / 管道 / 环境变量前缀全部换到 `ouuutput`
+  (`OUUUTPUT_*`)。菜单与托盘提示里的中文显示名统一成「ouuutput 输入法」。
+  迁移注意:
+  - 配置文件 `sainput.conf` → `ouuutput.conf`,`logs\sainput-*.log` → `logs\ouuutput-*.log`;
+  - 环境变量 `SAINPUT_*` → `OUUUTPUT_*`(`OUUUTPUT_PYTHON` / `OUUUTPUT_SINGLE_NS` /
+    `OUUUTPUT_FINAL_WAIT_MS` / `OUUUTPUT_CORPUS` 等);
+  - 单实例锁命名空间与自启注册表值名一并改到 `ouuutput`;
+  - TSF 的 CLSID / profile GUID **不变**(已发布标识不能改),只换了显示名。
+
+- **托盘图标换成 ouuut 品牌标记**(手绘 `o`,纸白 `#F5F3ED`),不再是蓝色麦克风。
+  形状是 `ouuut-mark-square.svg` 的轮廓(矢量化自品牌手稿,与品牌参考图形状 IoU 0.983),
+  轮廓数据在 `crates/ouuutput-core/src/tray.rs` 的 `MARK` 常量里单一存放:
+  Rust 自己栅格化,`tools/make_icon.py` 也直接从这一处解析生成 `.ico`,不再手抄第二份。
+
+### 未改
+
+- GitHub 仓库名 / Hugging Face 镜像 / 落地页域名 `input.saaaai.com` —— 待用户拍板后再动。
+
 ## [0.2.6] - 2026-11-02
 
 ### Fixed
@@ -28,7 +51,7 @@
   侧车挂了、焦点守卫中止、换句时还挂着)都走 `cancel_buffer()` —— 直接把用户已经看见的
   半句**清掉**。现在统一走 `commit_shown()`:把当前这一版提交进应用(落进 PTY/编辑框,
   看得见、能删,不是执行),再锁住这一句(迟到的 partial/定稿不再提交,避免同一句两遍)。
-  收尾上限(`SAINPUT_FINAL_WAIT_MS`,默认 1200ms)也**不再排除组合态**:等不到真定稿就
+  收尾上限(`OUUUTPUT_FINAL_WAIT_MS`,默认 1200ms)也**不再排除组合态**:等不到真定稿就
   提交当前这一版 —— 否则那条挂着的组合串会一直占着应用的按键处理。按键模式本来就只
   「停手」、已打出的字不会被退掉,行为不变。回归:`inject.rs` 三条单测(兜底提交/换句提交/
   上限提交后锁句 + 按键模式晚到定稿仍能补尾巴)+ `tools/test_compose_cap.py`(私有桌面 +
@@ -120,7 +143,7 @@
 - **TIP 注册会把开发产物写进系统**(T2.4 后半段)—— `tools/tsf_register.ps1` 现在
   **拒绝**注册 `target-test`/`debug` 路径(除非显式 `-AllowDev`),正斜杠也拦;
   `verify` 从"打印状态"升级成**给结论 + 退出码**(`OK`/`STALE(...)`/`NOT-REGISTERED`),
-  注册时记 `SainputVersion`/`SainputRegisteredAt`。实测后果就是本机现状:
+  注册时记 `OuuutputVersion`/`OuuutputRegisteredAt`。实测后果就是本机现状:
   `verdict: STALE(dev-build-registered)` —— 早先留下的一条注册指向 target-test,
   还带语言 profile(输入法列表里会多一条选中就崩的项)。脚本同时补了 UTF-8 BOM
   (PS 5.1 读无 BOM 的中文注释会吞掉下一行代码);机器可检的判据行一律 ASCII,
@@ -161,7 +184,7 @@
 
   没量过的类**一律维持原行为**(换错风味是可见的丢字,维持现状最坏也只是维持现状)。
   验证:`tools/test_compose_path.py` 六条全过 —— 其中"退格改写"两条覆盖两种风味
-  (修之前经典 `Edit` 那条是失败的);`cargo test -p sainput-core` 41 passed
+  (修之前经典 `Edit` 那条是失败的);`cargo test -p ouuutput-core` 41 passed
   (新增 `inject::tests::backspace_flavor_by_class`)。
 
 ### Added
@@ -171,7 +194,7 @@
   而**句尾那个标点是被丢掉的**(`今天天气不错。` → `今天天气不错`,没有空格),
   于是下一句一接上来就和上一句粘住 —— 这是个缺,不是特性。现在每条定稿的句子后面
   补**一个**空格;配置键 `trailing_space` + `--trailing-space` / `--no-trailing-space`,
-  托盘点一下立刻生效并写回 `sainput.conf`,**默认开**。
+  托盘点一下立刻生效并写回 `ouuutput.conf`,**默认开**。
   三条设计口径(都写进代码注释了):
   1. **空格进同一条算术** —— `injected` = prefix + 正文 + 句尾空格(和前置空格同一个理由:
      只多敲一个空格而不记账,下一帧算公共前缀就会错位、退格数算错)。
@@ -180,11 +203,11 @@
      (`WMCHAR_BACKSPACE_SETTLE`;写这条时是 40ms,2026-10-31 体检后收到 15ms)。
   3. **只补一个 + 纯数字句不补** —— 结尾已经是空格(标点转空格那条路的尾巴)就不再补;
      整句是一个数字串时(读验证码)前后都不补,理由和前置空格那条一样:要能贴进数字框。
-  验证:`cargo test -p sainput-core` 31 passed(新增两条:只补一个 / 只在定稿落);
+  验证:`cargo test -p ouuutput-core` 31 passed(新增两条:只补一个 / 只在定稿落);
   端到端 `tools/test_trailing_space.ps1`(喂 wav → 合成右 Ctrl → 读回记事本):
   `--trailing-space` 那句落在记事本里是「…频繁的 」(**恰好一个**空格结尾),
   `--no-trailing-space` 是「…频繁的」(没有空格);托盘项用 `tools/test_tray_menu.ps1`
-  点两次(16 = 后面自动加空格),`sainput.conf` 里 `trailing_space` 跟着 false → true。
+  点两次(16 = 后面自动加空格),`ouuutput.conf` 里 `trailing_space` 跟着 false → true。
 
 - **二遍重打(`twopass`,体检 §6.4)**:可选的高精度模式。流式阶段仍用默认 160ms 档
   (保住手感 —— 首字延迟由模型右上下文决定,实测改变不了),**松键定稿时**用更准的
@@ -214,7 +237,7 @@
 ### Fixed
 
 - **英文与数字混说时,汉字数字不转、域名里的「点」不转(2026-10-31,用户实测)**:
-  用户原话的例子(`logs/sainput-20261030-223101.log` 里逐句都有 `[raw]` 对照):
+  用户原话的例子(`logs/ouuutput-20261030-223101.log` 里逐句都有 `[raw]` 对照):
   `MP 四`→该是 `MP4`、`V 二版本`→`V2版本`、`MP 三`→`MP3`、`AGENTS 点 M D`→`AGENTS.md`、
   `S A A A I 点 COM`→`saaaai.com`。两条新规则,判据都收得很窄:
   1. **拉丁词(可隔一个空格)+ 1~4 位汉字数字 → 阿拉伯数字并去掉空格**。
@@ -271,7 +294,7 @@
   **🟠 安全面三条(体检 §4)** —— 托盘「显示日志」原来用 `cmd /c start "" <路径>`,
   路径里的 `&` 等 shell 元字符可造成命令注入 → 改用 `ShellExecuteW`,不经过任何 shell;
   启动 sidecar 原来用裸 `python`,依赖 Windows 搜索顺序(**当前目录优先**)→ 改成只认
-  绝对路径候选并逐个 `--version` 实测,找不到就明确报错(便携版写进 `SAINPUT_PYTHON` 的绝对路径
+  绝对路径候选并逐个 `--version` 实测,找不到就明确报错(便携版写进 `OUUUTPUT_PYTHON` 的绝对路径
   仍然优先);按住热键说话途中切窗口会让后半句打进**新**窗口 → 新增焦点守卫
   (默认开,`focus_guard = false` / `--no-focus-guard` 可关):上屏前复核前台窗口,
   不一致就中止本句注入并记一笔。托盘切换里两处 `Box::leak` 的永久泄漏也清掉了。
@@ -323,10 +346,10 @@
      `class_needs_message_channel()` 现在 = `*edit*` **或** `qt*`,两者都有真机证据才写进去
      (换通道本身有代价,没量过的窗口不动)。
   验收:整条语音链路(`run --feed` + 右 Ctrl)真机日志打出
-  `[sainput] 上屏改用 WM_CHAR:消息通道(流式)Qt51514QWindowIcon`;`injectprobe` 在微信窗口上
+  `[ouuutput] 上屏改用 WM_CHAR:消息通道(流式)Qt51514QWindowIcon`;`injectprobe` 在微信窗口上
   用生产代码写完再读回,输入框内容与记账逐字一致(`" helloTOKEN混排OK"`)。
   取证工具:`tools/probe_wechat_inject.py`(三条通道对比 + 生产代码 drive)、
-  `crates/sainput-core/examples/injectprobe.rs`(按策略决定模式并真打一遍)、
+  `crates/ouuutput-core/examples/injectprobe.rs`(按策略决定模式并真打一遍)、
   `tools/make_test_wav.ps1`(合成「中文夹英文单词」的素材)。
 
 - **读验证码时说一串数字,出来的是汉字数字、两边还带空格(2026-10-30,用户报的第二条)**:
@@ -387,13 +410,13 @@
 - **`tools/probe_wmchar_backspace.py`(2026-10-30)**:消息通道「退格之后那个字符被吞」的
   定标工具 —— 往前台窗口的输入框里按不同间隔打「N 个退格 + 一段字」再读回比对,
   一眼看出阈值在哪(实测 0ms 必丢、10ms 起全对),调 `WMCHAR_BACKSPACE_SETTLE` 前先跑它。
-  只发窗口消息,不发合成按键;文档头写明红线与安全口径(用 `SAINPUT_DIAG_AUTOSTART` 触发热键)。
+  只发窗口消息,不发合成按键;文档头写明红线与安全口径(用 `OUUUTPUT_DIAG_AUTOSTART` 触发热键)。
 
 ## [0.2.4] - 2026-10-30
 
 ### Fixed
 
-- **「每说一句留一块 32 MB」的内存泄漏(2026-10-30)**:现象是 sainput.exe 的私有提交
+- **「每说一句留一块 32 MB」的内存泄漏(2026-10-30)**:现象是 ouuutput.exe 的私有提交
   每说一句涨一块 32 MiB(4K 下正好 2^25 字节),半天 2 GB+,最终吃光整机提交额度 →
   DWM `STATUS_FATAL_MEMORY_EXHAUSTION` → 全屏黑 + 程序闪退(用户侧表现为"pebrel 闪退")。
   ETW(VirtualAllocation)抓到的那次分配栈是 `win32u(分层窗口更新) → dxcore → d3d11 →
@@ -411,14 +434,14 @@
   3. 画布按屏幕尺寸常驻复用、窗口只在启动时摆一次、显隐只用 alpha
      (`WS_EX_TRANSPARENT` 保证全屏透明层不吃鼠标点击)。
   **实测:19 句 0 块**(修前 18 句 16 块)。复现口径留在仓库里:`run --feed <wav>
-  --feed-restart --dry-run` + `SAINPUT_DIAG_AUTOSTART=<ms>`,或
+  --feed-restart --dry-run` + `OUUUTPUT_DIAG_AUTOSTART=<ms>`,或
   `overlay-demo --mode sentence --cycles N`。
 
 ### Added
 
 - **`run --dry-run`(2026-10-30)**:`run` 也支持演练模式 —— 走完全相同的链路但一个字都不上屏;
   配合 `--feed <wav> --feed-restart` 就能在不需要麦克风、也不打扰当前焦点窗口的前提下
-  离线复现整条按句路径。另有环境变量 `SAINPUT_DIAG_AUTOSTART=<ms>`(默认关闭)自动反复
+  离线复现整条按句路径。另有环境变量 `OUUUTPUT_DIAG_AUTOSTART=<ms>`(默认关闭)自动反复
   "按下热键 → 松开",用于无人值守跑这条链路。
 - **`overlay-demo --cycles N`(2026-10-30)**:把一轮悬浮层生命周期重复 N 次。内存泄漏只有在
   **同一个进程里反复走同一条路径**时才看得见(短命进程一退就全回收);`--mode sentence`
@@ -430,7 +453,7 @@
   渲染路径),每帧整体改写,定稿时才一次性提交进 PTY。这条路的动因是真机语料:1372 帧里
   94.8% 只是往后加,5% 会回头改中间的词、0.2% 会变短 —— 「边说边改」是常态而不是边角,
   而按键那条路只能退格补打,中间态会真的落进终端和它的历史里。
-  实现:本仓 `crates/sainput-core/src/pebrel.rs`(客户端,自己发现 `runtime.port`)+
+  实现:本仓 `crates/ouuutput-core/src/pebrel.rs`(客户端,自己发现 `runtime.port`)+
   `inject.rs` 的 `KeyMode::Pebrel`(`整体替换`而不是退格算术);Pebrel 侧新增
   `pane.compose` 协议方法(那半个补丁在它自己的仓库里)。
   边界:只发现端点、只写前台那个 Pebrel 进程、SSH pane 照旧拒绝本地内容;Pebrel 没起、
@@ -438,10 +461,10 @@
 
 ### Changed
 
-- **语音前端归一(2026-10-28)**:侧键语音只跑 sainput 原生路径(`hotkey = mousex1` +
+- **语音前端归一(2026-10-28)**:侧键语音只跑 ouuutput 原生路径(`hotkey = mousex1` +
   本仓 `tools/asr_sidecar.py`)。原先叠在上面的那层前端(水杉输入法的 TSF 行内预编辑 /
-  TSF 上屏 + `tools/sainput_doubao_proxy.py` 代理 + `tools/x1_to_ralt.ps1` 的 X1→右Alt 映射)
-  已退役:`sainput_doubao_proxy.py` 不再接线,水杉侧 `voice_input = false`、`hotkey_ralt = false`、
+  TSF 上屏 + `tools/ouuutput_doubao_proxy.py` 代理 + `tools/x1_to_ralt.ps1` 的 X1→右Alt 映射)
+  已退役:`ouuutput_doubao_proxy.py` 不再接线,水杉侧 `voice_input = false`、`hotkey_ralt = false`、
   `asr_endpoint` 还原为默认。动因与机制见 `docs/TROUBLESHOOTING.md` §5.1(X1 闩锁事故)与 §10。
   代价(已知):原生路径只会 `SendInput` 上屏,没有 TSF,管理员权限窗口仍打不进字(路线图 M3)。
 
@@ -462,7 +485,7 @@
   时自动换(这一类的失败与修复都已实测);`on` = 到处都换;`off` = 老行为;
   还能挂名单只对某个程序生效(`on:pebrel.exe` —— 试新路子时最安全)。
   每句开始时重判一次,
-  换路时打一行 `[sainput] 上屏改用 WM_CHAR:…`。
+  换路时打一行 `[ouuutput] 上屏改用 WM_CHAR:…`。
   消息通道的规则是**整段一条路**:字符走 `PostMessage(WM_CHAR)`,退格走
   `PostMessage(WM_KEYDOWN/UP, VK_BACK)`(退格在 GUI 程序里走的是按键那条路,终端收到
   按键才给 pty 发 DEL;`WM_CHAR(0x08)` 只有经典控件当删除用)。两种消息进的是同一个
@@ -484,8 +507,8 @@
   邻居输入(58 字、60 字)又完全正常** —— 是英文单词把 token 数顶到了某个边界上,所以
   「说到英文」才踩得到。识别原文(`[raw]`)一直是完整的,缺的是渲染结果,而下游上屏器
   只看到「文本变短了」,就按差值退格 —— 用户看到的就是那一句被跳过、被删掉。
-  真实日志里已经发生过多次(`logs/sainput-20261017-185340.log:1042` 58→13 字、
-  `logs/sainput-20261028-074200.log:2658` 67→59 字)。现在改为 `punctuate_guarded()`:
+  真实日志里已经发生过多次(`logs/ouuutput-20261017-185340.log:1042` 58→13 字、
+  `logs/ouuutput-20261028-074200.log:2658` 67→59 字)。现在改为 `punctuate_guarded()`:
   每次跑完标点都验一遍「正文指纹」,模型只要动了正文就**整句退回未加标点的文本**
   (与热词同一条原则:加分项绝不许吃正文),并在 stderr 留一行说明。
   回归测试:`tools/test_punct_guard.py`(4 条真实日志原文,修之前分别丢 39 / 10 / 7 / 3 字)。
@@ -493,7 +516,7 @@
   但顺手把 `injected` 改成了新文本 —— 记账说屏幕上是新的、屏幕上其实还是旧的,之后每次
   退格都是照「屏幕上有这些字」算的,算出来就会删掉用户真正的文字。
   现在放弃时屏幕与记账都不动。真机日志统计:1432 句里有 3 句走到这条路(差值 38~79 字)。
-  回归测试:`cargo test -p sainput-core` 的 `giveup_keeps_bookkeeping_on_screen`。
+  回归测试:`cargo test -p ouuutput-core` 的 `giveup_keeps_bookkeeping_on_screen`。
 - sidecar 收尾丢尾巴:`pump()` 每轮最多解 4 帧的限量以前也套在 `finish` 和 VAD
   endpoint 上,解码一旦落后(长句、机器忙),定稿时 `get_result()` 拿到的就是
   没喂完的音频,最后一个词消失。收尾改为一次解完(`drain_all`),并在 `final`
@@ -505,19 +528,19 @@
   现在:`Sidecar` 以 stdout EOF 判定存活,子进程一死立刻唤醒等待者并报
   `exited (code=N)`(Windows 异常码同时给十六进制,如 `-1073741819 (0xC0000005)`);
   代理带看门狗,发现死了立即换新的(加载约 7 秒),会话开头会等它回来再说话;
-  子进程 stderr 从此写 `%TEMP%\sainput_sidecar.log`(以前是 DEVNULL,所以死因
+  子进程 stderr 从此写 `%TEMP%\ouuutput_sidecar.log`(以前是 DEVNULL,所以死因
   无迹可查),启动时模型加载失败也留日志再退出。回归测试:
   `tools/test_proxy_respawn.py`。
 
 ### Added
 
-- `tools/sainput_doubao_proxy.py`:日志带时间戳,每段会话写一行汇总
+- `tools/ouuutput_doubao_proxy.py`:日志带时间戳,每段会话写一行汇总
   (`audio_ms / pkts / tail_bytes / tail_chunks / first_audio / speech_span / pad / finish / listen / dump_ms`),
   新增 `--dump-dir` 存下每段原始音频 + 最终文本(文件名带 `live/dump/t` 元信息,
   60 秒上限截断或现场无文本时离线比对会标 SKIP / NOTE,不会误判成丢尾巴)。
 - `tools/probe_tail.py`、`tools/probe_tail_oracle.py`:按真实协议重放音频 / 离线比对
   某段会话的「现场文本 vs 整段重放文本」,用来判定尾巴是丢在识别链路还是丢在音频里。
-- `tools/asr_sidecar.py`:`SAINPUT_PUMP_DEBUG=1` 时发 `dbg` 事件(每轮解了几帧、
+- `tools/asr_sidecar.py`:`OUUUTPUT_PUMP_DEBUG=1` 时发 `dbg` 事件(每轮解了几帧、
   还剩没解完的帧),给探针判断积压用;不设这个变量时不发 `dbg`,除每轮一次
   环境变量查询外没有额外开销,解码结果与耗时不受影响。
 - `tools/test_proxy_respawn.py` + `tools/stub_sidecar.py`:假识别器(同一套 JSON
@@ -532,7 +555,7 @@
 - `README.en.md`（英文摘要）、`CONTRIBUTING.md`、`SECURITY.md`、`.github/` 仓库模板。
 - `scripts/fetch_models.ps1`：按需下载默认 ASR 与标点模型到 `models/`（不覆盖已有目录）。
 - `requirements.txt`：声明 sidecar 的 Python 依赖。
-- `sainput.conf.example`、`hotwords.example.txt`、`.cargo/config.toml.example`、
+- `ouuutput.conf.example`、`hotwords.example.txt`、`.cargo/config.toml.example`、
   `rust-toolchain.example.toml`：可直接复制的示例配置。
 
 ### Changed
@@ -578,7 +601,7 @@
   前置空格、悬浮显示方式与光色、英文小写修复、开机自启、静音断句门槛、释放卡住的键、
   显示日志窗口、退出。开关点击即生效并写回配置。
 - **静音断句做成托盘开关**：5 / 10 / 15 / 30 秒 / 不断句，默认 15 秒。
-- **`sainput release-keys`**：给所有修饰键补发 key-up 的安全网；托盘同款入口。
+- **`ouuutput release-keys`**：给所有修饰键补发 key-up 的安全网；托盘同款入口。
   配合按键状态闩，进程异常退出后不再留下「按键卡住、键盘失灵」的状态。
 - 单实例保护、开机自启、`--log-dir`、`--hide-console` / `--show-console`。
 - 新开关：`--punct-mode`、`--merge-terms`、`--fix-case`、`--ctx-bias`、
@@ -625,7 +648,7 @@
 - 自动标点（CT-Transformer int8，中英通用）。
 - 阿拉伯数字归一化（ITN）与轻量润色、重复循环修复。
 - 热词表（`hotwords.txt`），非空时自动使用 `modified_beam_search`。
-- 配置文件 `sainput.conf`（`key = value`），命令行优先。
+- 配置文件 `ouuutput.conf`（`key = value`），命令行优先。
 - 悬浮状态条（当时为贴插入符的细条）。
 - **松手尾巴**：松手后继续收真音频 → 补底噪 → 定稿；参数
   `tail_ms` / `tail_quiet_ms` / `tail_max_ms` / `tail_pad_ms` / `tail_rms`。

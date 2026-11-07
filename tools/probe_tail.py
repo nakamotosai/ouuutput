@@ -2,9 +2,9 @@
 """Tail-loss probe: where does the last syllable go?
 
 Modes:
-  direct : spawn asr_sidecar.py exactly like sainput_doubao_proxy.py does, feed
+  direct : spawn asr_sidecar.py exactly like ouuutput_doubao_proxy.py does, feed
            audio straight into it (no websocket, no IME).
-  proxy  : speak the Doubao protocol to a running sainput_doubao_proxy.py.
+  proxy  : speak the Doubao protocol to a running ouuutput_doubao_proxy.py.
 
 Pacing:
   --paced 0 : dump the whole wav at once (batch / offline truth)
@@ -37,7 +37,7 @@ MODEL_DIR = os.path.join(REPO, "models",
                          "sherpa-onnx-x-asr-160ms-streaming-zipformer-transducer-zh-en-int8-2026-06-05")
 PUNCT_DIR = os.path.join(REPO, "models",
                          "sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8")
-PYTHON = os.path.join(REPO, "dist", "sainput-0.2.2-win64", "runtime", "python.exe")
+PYTHON = os.path.join(REPO, "dist", "ouuutput-0.2.2-win64", "runtime", "python.exe")
 SCRIPT = os.path.join(HERE, "asr_sidecar.py")
 HOTWORDS = os.path.join(REPO, "hotwords.txt")
 RATE = 16000
@@ -62,7 +62,7 @@ class Sidecar:
         if os.path.isfile(HOTWORDS):
             args += ["--hotwords", HOTWORDS]
         self.proc = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                     bufsize=0, env={**os.environ, "SAINPUT_PUMP_DEBUG": "1"})
+                                     bufsize=0, env={**os.environ, "OUUUTPUT_PUMP_DEBUG": "1"})
         self.q: "queue.Queue[dict]" = queue.Queue()
         self.spill: list = []
         threading.Thread(target=self._reader, daemon=True).start()
@@ -195,7 +195,7 @@ def run_direct(pcm, paced: bool, pad_ms: int, tail_ms: int, script: str, verbose
         sc.send({"cmd": "finish"})
         final = sc.wait_for("final", 30)
         collect("finish")
-        # The sidecar only emits `dbg` when SAINPUT_PUMP_DEBUG=1 (this probe sets it).
+        # The sidecar only emits `dbg` when OUUUTPUT_PUMP_DEBUG=1 (this probe sets it).
         # No dbg at all -> report None, never a fake 0 that reads like "no backlog".
         measured = bool(dbg)
         # 流式阶段(收尾那一轮 unlimited,不算)的每轮解码帧数:这才是"4 帧限量有没有顶住"。

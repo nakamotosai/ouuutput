@@ -29,13 +29,13 @@ function Shot($path) {
 . "$PSScriptRoot\_hygiene.ps1"
 Initialize-TestHygiene
 $root = Split-Path -Parent $PSScriptRoot
-$exe = Join-Path $root "target\x86_64-pc-windows-gnu\release\sainput.exe"
-if (-not (Test-Path -LiteralPath $exe)) { $exe = Join-Path $root "target\release\sainput.exe" }
-if (-not (Test-Path -LiteralPath $exe)) { Write-Error "找不到 sainput.exe：请先在项目根执行 cargo build --release"; exit 1 }
-$log = "$env:TEMP\sainput_overlay.log"
+$exe = Join-Path $root "target\x86_64-pc-windows-gnu\release\ouuutput.exe"
+if (-not (Test-Path -LiteralPath $exe)) { $exe = Join-Path $root "target\release\ouuutput.exe" }
+if (-not (Test-Path -LiteralPath $exe)) { Write-Error "找不到 ouuutput.exe：请先在项目根执行 cargo build --release"; exit 1 }
+$log = "$env:TEMP\ouuutput_overlay.log"
 # 截图与日志都落在临时目录：以前把 t_ov_*.png 直接吐在项目根，属于测试残渣
-$shotDir = "$env:TEMP\sainput_overlay_shots"
-$runDir = "$env:TEMP\sainput_overlay_logs"
+$shotDir = "$env:TEMP\ouuutput_overlay_shots"
+$runDir = "$env:TEMP\ouuutput_overlay_logs"
 $np = $null
 $p = $null
 try {
@@ -46,8 +46,8 @@ New-Item -ItemType Directory -Force -Path $shotDir, $runDir | Out-Null
 $np = Start-TestNotepad
 Write-Output "notepad up"
 
-$p = Start-Process -FilePath $exe -ArgumentList @("run","--log-dir",$runDir) -PassThru -WindowStyle Hidden -RedirectStandardOutput $log -RedirectStandardError "$env:TEMP\sainput_overlay.err"
-Write-Output "sainput run pid=$($p.Id)"
+$p = Start-Process -FilePath $exe -ArgumentList @("run","--log-dir",$runDir) -PassThru -WindowStyle Hidden -RedirectStandardOutput $log -RedirectStandardError "$env:TEMP\ouuutput_overlay.err"
+Write-Output "ouuutput run pid=$($p.Id)"
 
 for ($i = 0; $i -lt 90; $i++) {
   Start-Sleep -Milliseconds 500
@@ -73,12 +73,12 @@ Shot "$shotDir\t_ov_after.png"
 
 Write-Output "--- 运行日志 ---"
 Get-Content $log -Encoding UTF8 -ErrorAction SilentlyContinue
-$e = Get-Content "$env:TEMP\sainput_overlay.err" -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
+$e = Get-Content "$env:TEMP\ouuutput_overlay.err" -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
 if ($e -and $e.Trim()) { Write-Output "--- stderr ---"; Write-Output $e }
 
 } finally {
-  # 先 release-keys 再按 PID 结束（见 _hygiene.ps1）；绝不按名字全局杀 sainput
-  if ($p) { Stop-SainputSafely -Id $p.Id }
+  # 先 release-keys 再按 PID 结束（见 _hygiene.ps1）；绝不按名字全局杀 ouuutput
+  if ($p) { Stop-OuuutputSafely -Id $p.Id }
   Stop-TestNotepad $np
   Restore-TestHygiene
 }

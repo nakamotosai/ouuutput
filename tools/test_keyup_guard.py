@@ -7,9 +7,9 @@
 
 判据(都可机检):
   A. 硬杀(钩子活着时被杀)→ 看门狗日志出现 `VIOLENT-EXIT`;
-  B. 父进程**从没装过钩子**(拿 `sainput config` 当父进程)→ 日志**绝不允许**出现
+  B. 父进程**从没装过钩子**(拿 `ouuutput config` 当父进程)→ 日志**绝不允许**出现
      `VIOLENT-EXIT`(这条防的是"看门狗变成乱发按键的东西");
-  C. 两个命名空间互不串(测试用 `SAINPUT_SINGLE_NS` 隔离,不碰你日常那份)。
+  C. 两个命名空间互不串(测试用 `OUUUTPUT_SINGLE_NS` 隔离,不碰你日常那份)。
 
 ⚠️ 引擎跑在**私有桌面** + 独立命名空间,`--dry-run` 不打字;看门狗日志写在 `logs/guard-<pid>.log`。
 """
@@ -23,12 +23,12 @@ import hdesk  # noqa: E402
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 BIN = REPO / "target-test/x86_64-pc-windows-gnu/release"
-if not (BIN / "sainput.exe").exists():
+if not (BIN / "ouuutput.exe").exists():
     BIN = REPO / "target/x86_64-pc-windows-gnu/release"
-SAINPUT = BIN / "sainput.exe"
-HOST = BIN / "sainput-tsf-host.exe"
+OUUUTPUT = BIN / "ouuutput.exe"
+HOST = BIN / "ouuutput-tsf-host.exe"
 DESKTOP = "SAI-KeyGuard"
-ENV_KEYS = ("SAINPUT_SINGLE_NS", "SAINPUT_DIAG_AUTOSTART", "SAINPUT_DIAG_TARGET_HWND")
+ENV_KEYS = ("OUUUTPUT_SINGLE_NS", "OUUUTPUT_DIAG_AUTOSTART", "OUUUTPUT_DIAG_TARGET_HWND")
 
 
 GUARD_LOG = REPO / "logs" / "guard.log"
@@ -42,8 +42,8 @@ def guard_lines():
 
 
 def main():
-    if not SAINPUT.exists():
-        print(f"FAIL: 没构建 {SAINPUT}")
+    if not OUUUTPUT.exists():
+        print(f"FAIL: 没构建 {OUUUTPUT}")
         return 2
     fails = []
     d = hdesk.open_desktop(DESKTOP)
@@ -51,8 +51,8 @@ def main():
     hh = hp = None
     hpid = epid = 0
     try:
-        os.environ["SAINPUT_SINGLE_NS"] = "sainput-keyguard"
-        os.environ["SAINPUT_DIAG_AUTOSTART"] = "60000"  # 一直"按着",引擎处于活着的钩子状态
+        os.environ["OUUUTPUT_SINGLE_NS"] = "ouuutput-keyguard"
+        os.environ["OUUUTPUT_DIAG_AUTOSTART"] = "60000"  # 一直"按着",引擎处于活着的钩子状态
         hh, _t, hpid = hdesk.launch(str(HOST), f"--life 60000 --log {REPO}/tmp/guard-host.log", DESKTOP)
         edit = None
         t0 = time.time()
@@ -61,9 +61,9 @@ def main():
             if edit:
                 break
             time.sleep(0.2)
-        os.environ["SAINPUT_DIAG_TARGET_HWND"] = hex(edit)
+        os.environ["OUUUTPUT_DIAG_TARGET_HWND"] = hex(edit)
         hp, _pt, epid = hdesk.launch(
-            str(SAINPUT), "run --hotkey rightctrl --no-tray --no-overlay --dry-run", DESKTOP)
+            str(OUUUTPUT), "run --hotkey rightctrl --no-tray --no-overlay --dry-run", DESKTOP)
         # ⚠️ 看门狗是**父进程退出之后**才写日志的(它整个存在意义就在那一刻),
         # 所以这里只能等引擎自己就绪,不能等日志 —— 先去等日志就是鸡生蛋。
         time.sleep(10)
@@ -90,11 +90,11 @@ def main():
             fails.append("硬崩补发")
 
         # B. 父进程从没装过钩子 → 绝不允许补发
-        victim = hdesk.launch(str(SAINPUT), "config", DESKTOP)
+        victim = hdesk.launch(str(OUUUTPUT), "config", DESKTOP)
         vpid = victim[2]
         time.sleep(1.5)
         g = hdesk.launch(
-            str(SAINPUT),
+            str(OUUUTPUT),
             f'guard --parent {vpid} --log "{GUARD_LOG}"',
             DESKTOP,
         )

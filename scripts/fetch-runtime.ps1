@@ -1,6 +1,6 @@
-# Prepare the private Python runtime for sainput.
+# Prepare the private Python runtime for ouuutput.
 #
-# Why this exists: sainput.exe handles audio / hotkey / text injection only.
+# Why this exists: ouuutput.exe handles audio / hotkey / text injection only.
 # Recognition runs in the Python sidecar (tools/asr_sidecar.py) and needs
 # sherpa-onnx + numpy. To ship a green package that runs without any setup,
 # the packaging script bundles an embeddable Python plus those two packages.

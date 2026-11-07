@@ -2,10 +2,10 @@
 #
 # 为什么要这么写(踩过的坑,别简化):
 #   1) Windows 不许**覆盖**正在运行的 exe / 已加载的 dll(实测报 `os error 5 拒绝访问`),
-#      但**允许改名**。所以流程是:把在跑的 `sainput.exe` 改名腾位 → 再把新的拷到原路径。
+#      但**允许改名**。所以流程是:把在跑的 `ouuutput.exe` 改名腾位 → 再把新的拷到原路径。
 #      在跑的那个进程照旧用改名后的镜像继续跑,新路径上已经是新版。
 #   2) 编译**不能直接编到正在跑的那个目录**:cargo 换不上文件会以
-#      `failed to remove file ...sainput.exe` 收尾 —— 那句看着像编译失败,其实是**换不上去**。
+#      `failed to remove file ...ouuutput.exe` 收尾 —— 那句看着像编译失败,其实是**换不上去**。
 #      所以这里编到 staging(`target-build\...`),由本脚本负责搬运。
 #   3) 重启用 `start.bat`(它带 `run --hide-console`)。**新实例会自己接管旧实例**
 #      (引擎里的单实例逻辑:先请旧的退出,赖着不走才硬杀)—— 这正是"不用手动退出"的来源。
@@ -28,7 +28,7 @@ Set-Location $root
 $stagingDir = Join-Path $root (Join-Path $Staging (Join-Path $Triple "release"))
 $liveDir    = Join-Path $root (Join-Path "target" (Join-Path $Triple "release"))
 # 需要搬运的三件:引擎本体、TSF 通道 dll(它像 exe 一样会被宿主进程加载锁住)、自检宿主
-$artifacts  = @("sainput.exe", "sainput_tsf.dll", "sainput-tsf-host.exe")
+$artifacts  = @("ouuutput.exe", "ouuutput_tsf.dll", "ouuutput-tsf-host.exe")
 
 if (-not $SkipBuild) {
     Write-Host "[deploy] 编译到 staging:$Staging(不碰正在跑的那份)" -ForegroundColor Cyan
@@ -79,9 +79,9 @@ Get-ChildItem $liveDir -Filter "*.old-*" | Where-Object { $_.Name -notlike "*$st
 
 if ($NoRestart) { Write-Host "[deploy] 已替换,未重启(-NoRestart)。下次启动即新版。" -ForegroundColor Green; exit 0 }
 
-$running = @(Get-CimInstance Win32_Process -Filter "Name='sainput.exe'" -ErrorAction SilentlyContinue)
+$running = @(Get-CimInstance Win32_Process -Filter "Name='ouuutput.exe'" -ErrorAction SilentlyContinue)
 Write-Host ("[deploy] 现在有 {0} 个实例在跑 → 启动新实例接管(引擎自己的单实例逻辑会请旧的退出)" -f $running.Count) -ForegroundColor Cyan
 Start-Process -FilePath (Join-Path $root "start.bat") -WorkingDirectory $root -WindowStyle Hidden
 Start-Sleep -Seconds 12
-$after = @(Get-CimInstance Win32_Process -Filter "Name='sainput.exe'" -ErrorAction SilentlyContinue)
+$after = @(Get-CimInstance Win32_Process -Filter "Name='ouuutput.exe'" -ErrorAction SilentlyContinue)
 Write-Host ("[deploy] 装载完成,当前实例 pid {0}" -f (($after | ForEach-Object { $_.ProcessId }) -join ",")) -ForegroundColor Green

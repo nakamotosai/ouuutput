@@ -47,9 +47,9 @@ public class DG {
 . "$PSScriptRoot\_hygiene.ps1"
 Initialize-TestHygiene
 $root = Split-Path -Parent $PSScriptRoot
-$exe = Join-Path $root "target\x86_64-pc-windows-gnu\release\sainput.exe"
-if (-not (Test-Path -LiteralPath $exe)) { $exe = Join-Path $root "target\release\sainput.exe" }
-if (-not (Test-Path -LiteralPath $exe)) { Write-Error "找不到 sainput.exe:请先在项目根执行 cargo build --release"; exit 1 }
+$exe = Join-Path $root "target\x86_64-pc-windows-gnu\release\ouuutput.exe"
+if (-not (Test-Path -LiteralPath $exe)) { $exe = Join-Path $root "target\release\ouuutput.exe" }
+if (-not (Test-Path -LiteralPath $exe)) { Write-Error "找不到 ouuutput.exe:请先在项目根执行 cargo build --release"; exit 1 }
 
 # 素材 1:纯数字串(用 TTS 现合成;模型自带的 test_wavs 里没有「念一串数字」这种)
 $wavDigits = Join-Path $root "tmp\digits.wav"
@@ -107,7 +107,7 @@ function Run-Case([string]$label, [string]$wav, [string]$doc, [string[]]$extra =
   Start-Sleep -Seconds 6
   $screen = Read-Screen $h
   Write-Output ("屏幕内容 = [" + $screen + "]")
-  Stop-SainputSafely -Id $p.Id
+  Stop-OuuutputSafely -Id $p.Id
   Start-Sleep -Milliseconds 800
   return $screen
 }
@@ -127,7 +127,7 @@ if (-not $ok1) {
 $ok2 = $null
 if (Test-Path -LiteralPath $wavText) {
   # 显式 --leading-space:这条是**功能控制项**,判的是「前置空格有没有被改坏」,
-# 不能跟着用户自己的配置走 —— 本机 sainput.conf 里 leading_space = false(用户关掉了),
+# 不能跟着用户自己的配置走 —— 本机 ouuutput.conf 里 leading_space = false(用户关掉了),
 # 不指定的话这条会永远 FAIL(2026-10-31 实测踩到)。
 $got2 = @(Run-Case "普通中文句(期望 X 后面有空格)" $wavText "X" @("--leading-space"))[-1]
   $ok2 = $got2.StartsWith("X ")

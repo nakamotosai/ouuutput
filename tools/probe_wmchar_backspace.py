@@ -16,12 +16,12 @@
    目标窗口的输入框请先清空 —— 否则读回永远不等于期望。
 
 ⛔ 安全红线(2026-10-30 踩过,用户键盘被卡住):
-   **绝不用合成按键去触发热键**。热键事件被 sainput 的钩子吃掉之后,keyup 也得靠同一个钩子
+   **绝不用合成按键去触发热键**。热键事件被 ouuutput 的钩子吃掉之后,keyup 也得靠同一个钩子
    送达;一旦那个实例被硬杀,keyup 就永久丢失 —— 系统/目标程序认为修饰键一直按着,
-   而用户键盘上可能根本没有那个键,只能 `sainput release-keys` 救。
-   需要无人值守地触发「按住 → 松开」,用 `SAINPUT_DIAG_AUTOSTART=<ms>`(进程内部触发),
+   而用户键盘上可能根本没有那个键,只能 `ouuutput release-keys` 救。
+   需要无人值守地触发「按住 → 松开」,用 `OUUUTPUT_DIAG_AUTOSTART=<ms>`(进程内部触发),
    别用 SendInput 发真按键。本脚本只发窗口消息(WM_CHAR / WM_KEYDOWN/UP),
-   但读回用的是 Ctrl+A/Ctrl+C 合成按键 —— 跑之前确认没有别的 sainput 实例在用这些键。
+   但读回用的是 Ctrl+A/Ctrl+C 合成按键 —— 跑之前确认没有别的 ouuutput 实例在用这些键。
 """
 import argparse
 import ctypes

@@ -16,9 +16,9 @@ import sys
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 CANDIDATES = [
-    REPO / "target-test/x86_64-pc-windows-gnu/release/sainput-tsf-host.exe",
-    REPO / "target-test/release/sainput-tsf-host.exe",
-    REPO / "target/x86_64-pc-windows-msvc/release/sainput-tsf-host.exe",
+    REPO / "target-test/x86_64-pc-windows-gnu/release/ouuutput-tsf-host.exe",
+    REPO / "target-test/release/ouuutput-tsf-host.exe",
+    REPO / "target/x86_64-pc-windows-msvc/release/ouuutput-tsf-host.exe",
 ]
 CN = "你好abc123,这是宿主壳自检。"
 ASCII = "helloTOKEN123"
@@ -28,7 +28,7 @@ def find_exe():
     for c in CANDIDATES:
         if c.exists():
             return c
-    print("FAIL: sainput-tsf-host.exe not built; run: cargo build --release -p sainput-tsf-host")
+    print("FAIL: ouuutput-tsf-host.exe not built; run: cargo build --release -p ouuutput-tsf-host")
     sys.exit(2)
 
 

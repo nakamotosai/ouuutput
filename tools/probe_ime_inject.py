@@ -72,7 +72,7 @@ class _INPUT(ctypes.Structure):
 
 
 def send_unicode(ch):
-    """sainput 默认那条路:SendInput + KEYEVENTF_UNICODE(字母会被输入法收走)。"""
+    """ouuutput 默认那条路:SendInput + KEYEVENTF_UNICODE(字母会被输入法收走)。"""
     ev = []
     raw = ch.encode("utf-16-le")
     for i in range(0, len(raw), 2):
@@ -112,9 +112,9 @@ def hidden_edit():
         wc.cbSize = ctypes.sizeof(WNDCLASSEXW)
         wc.lpfnWndProc = CB
         wc.hInstance = hinst
-        wc.lpszClassName = "SainputHiddenProbe"
+        wc.lpszClassName = "OuuutputHiddenProbe"
         u32.RegisterClassExW(ctypes.byref(wc))
-        top = u32.CreateWindowExW(0, "SainputHiddenProbe", "hidden", 0, 0, 0, 400, 200, None, None, hinst, None)
+        top = u32.CreateWindowExW(0, "OuuutputHiddenProbe", "hidden", 0, 0, 0, 400, 200, None, None, hinst, None)
         edit = u32.CreateWindowExW(0, "EDIT", "", WS_CHILD | WS_BORDER | ES_MULTILINE, 0, 0, 380, 180, top, None, hinst, None)
         box["edit"] = edit
         box["ready"] = True

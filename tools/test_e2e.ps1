@@ -26,9 +26,9 @@ function ReadNote {
 . "$PSScriptRoot\_hygiene.ps1"
 Initialize-TestHygiene
 $root = Split-Path -Parent $PSScriptRoot
-$exe = Join-Path $root "target\x86_64-pc-windows-gnu\release\sainput.exe"
-if (-not (Test-Path -LiteralPath $exe)) { $exe = Join-Path $root "target\release\sainput.exe" }
-if (-not (Test-Path -LiteralPath $exe)) { Write-Error "找不到 sainput.exe：请先在项目根执行 cargo build --release"; exit 1 }
+$exe = Join-Path $root "target\x86_64-pc-windows-gnu\release\ouuutput.exe"
+if (-not (Test-Path -LiteralPath $exe)) { $exe = Join-Path $root "target\release\ouuutput.exe" }
+if (-not (Test-Path -LiteralPath $exe)) { Write-Error "找不到 ouuutput.exe：请先在项目根执行 cargo build --release"; exit 1 }
 $wav = Join-Path $root "models\sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20\test_wavs\0.wav"
 $log = "$env:TEMP\run_e2e.log"
 $np = $null
@@ -59,9 +59,9 @@ if ($e -and $e.Trim()) { Write-Output "--- stderr ---"; Write-Output $e }
 Write-Output "--- Notepad 读回 ---"
 Write-Output ("[" + (ReadNote) + "]")
 } finally {
-  # 无论中途出什么错都要收敛：还原用户剪贴板、只杀自己起的记事本与 sainput
-  # 先 release-keys 再按 PID 结束（见 _hygiene.ps1）；绝不按名字全局杀 sainput
-  if ($p) { Stop-SainputSafely -Id $p.Id }
+  # 无论中途出什么错都要收敛：还原用户剪贴板、只杀自己起的记事本与 ouuutput
+  # 先 release-keys 再按 PID 结束（见 _hygiene.ps1）；绝不按名字全局杀 ouuutput
+  if ($p) { Stop-OuuutputSafely -Id $p.Id }
   Stop-TestNotepad $np
   Restore-TestHygiene
 }

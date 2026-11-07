@@ -27,7 +27,7 @@ public class E {
     string res = "(no window)";
     EnumWindows(delegate(IntPtr h, IntPtr l) {
       StringBuilder sb = new StringBuilder(256); GetClassName(h, sb, 256);
-      if (sb.ToString() == "SainputOverlayWnd") {
+      if (sb.ToString() == "OuuutputOverlayWnd") {
         RECT r; GetWindowRect(h, out r);
         res = "vis=" + IsWindowVisible(h) + " " + (r.R-r.L) + "x" + (r.B-r.T) + "@" + r.L + "," + r.T;
         return false;
@@ -44,16 +44,16 @@ $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 . "$PSScriptRoot\_hygiene.ps1"
 
-$exe = Join-Path $root "target\x86_64-pc-windows-gnu\release\sainput.exe"
-if (-not (Test-Path -LiteralPath $exe)) { $exe = Join-Path $root "target\release\sainput.exe" }
-if (-not (Test-Path -LiteralPath $exe)) { Write-Error "找不到 sainput.exe：请先在项目根执行 cargo build --release"; exit 1 }
+$exe = Join-Path $root "target\x86_64-pc-windows-gnu\release\ouuutput.exe"
+if (-not (Test-Path -LiteralPath $exe)) { $exe = Join-Path $root "target\release\ouuutput.exe" }
+if (-not (Test-Path -LiteralPath $exe)) { Write-Error "找不到 ouuutput.exe：请先在项目根执行 cargo build --release"; exit 1 }
 
-# 红线：绝不按名字全局杀 sainput（会连用户日常实例一起杀掉，而且强杀会丢 keyup）。
+# 红线：绝不按名字全局杀 ouuutput（会连用户日常实例一起杀掉，而且强杀会丢 keyup）。
 # 本测试要独占键盘钩子，所以要求用户先自己从托盘退出。
-$live = @(Get-Process -Name 'sainput' -ErrorAction SilentlyContinue)
+$live = @(Get-Process -Name 'ouuutput' -ErrorAction SilentlyContinue)
 if ($live.Count -gt 0) {
-  Write-Warning ("检测到正在运行的 sainput (PID " + ($live.Id -join ',') + ")。")
-  Write-Warning "请先右键托盘退出 sainput，再重跑本脚本；卡住时用 sainput.exe release-keys。"
+  Write-Warning ("检测到正在运行的 ouuutput (PID " + ($live.Id -join ',') + ")。")
+  Write-Warning "请先右键托盘退出 ouuutput，再重跑本脚本；卡住时用 ouuutput.exe release-keys。"
   exit 2
 }
 
@@ -63,7 +63,7 @@ if ([string]::IsNullOrWhiteSpace($Wav)) {
 }
 Write-Output "WAV: $Wav"
 
-$conf = Join-Path $root "sainput.conf"
+$conf = Join-Path $root "ouuutput.conf"
 $orig = [IO.File]::ReadAllText($conf, [Text.UTF8Encoding]::new($false))
 $lines = $orig -split "`n"
 for ($i=0; $i -lt $lines.Count; $i++) {
@@ -90,7 +90,7 @@ foreach ($ms in @(600, 1400, 2200, 3200, 4600, 6000)) {
   Write-Output ("  松手+" + $ms + "ms: " + [E]::Overlay())
 }
 
-# 先 release-keys 再按 PID 结束（见 _hygiene.ps1）；绝不按名字全局杀 sainput
-Stop-SainputSafely -Id $p.Id
+# 先 release-keys 再按 PID 结束（见 _hygiene.ps1）；绝不按名字全局杀 ouuutput
+Stop-OuuutputSafely -Id $p.Id
 [IO.File]::WriteAllText($conf, $orig, [Text.UTF8Encoding]::new($false))
 Write-Output "config restored"

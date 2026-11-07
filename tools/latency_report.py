@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """把"用户实际等待"算成一张表 —— 数据全部来自引擎自己的会话日志,不需要任何额外测试。
 
-引擎每句都会在 `logs/sainput-*.log` 里记两行:
+引擎每句都会在 `logs/ouuutput-*.log` 里记两行:
 
     T  <ms>  松键→收尾 226ms | ... | 模型停吐 1036ms | ...
     F  <ms>  (finish)  <识别的文本>
@@ -54,7 +54,7 @@ def collect(directory, last, cap_ms=1200):
     样本 = dict(wait, tail, stall, cap, after) —— `wait` 是实测等待,
     `after` 是按上限折算后的等待(触发了上限的句子 `after == wait`)。
     """
-    files = sorted(glob.glob(os.path.join(directory, "sainput-*.log")))
+    files = sorted(glob.glob(os.path.join(directory, "ouuutput-*.log")))
     if last and last > 0:
         files = files[-last:]
     rows, skipped, skipped_files, orphan = [], 0, 0, 0

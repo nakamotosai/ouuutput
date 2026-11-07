@@ -9,11 +9,11 @@
 引擎与靶子窗口都跑在**私有桌面**上,读回用 `hdesk read_edit`。
 不需要麦克风、不需要合成按键、用户看不见。
 
-⚠️ 单实例:引擎带 `SAINPUT_SINGLE_NS` 跑,只认自己的锁与自己的进程名 ——
+⚠️ 单实例:引擎带 `OUUUTPUT_SINGLE_NS` 跑,只认自己的锁与自己的进程名 ——
 **绝不会**去接管(更不会杀掉)用户正在用的那个实例。
 
 跑法:
-    cargo build --release --target-dir target-test -p sainput-cli -p sainput-tsf-host
+    cargo build --release --target-dir target-test -p ouuutput-cli -p ouuutput-tsf-host
     python tools/test_race_guards.py
 """
 import os
@@ -29,9 +29,9 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 DIRS = ["target-test/x86_64-pc-windows-gnu/release", "target-test/release",
         "target/x86_64-pc-windows-gnu/release", "target/release"]
 DESKTOP = "SAI-RaceGuards"
-NS = "sainput-racetest"
-ENV_KEYS = ("SAINPUT_SINGLE_NS", "SAINPUT_DIAG_AUTOSTART", "FAKE_ASR_SCRIPT",
-            "SAINPUT_DIAG_TARGET_HWND", "SAINPUT_DIAG_FAKE_KEY_AFTER_MS")
+NS = "ouuutput-racetest"
+ENV_KEYS = ("OUUUTPUT_SINGLE_NS", "OUUUTPUT_DIAG_AUTOSTART", "FAKE_ASR_SCRIPT",
+            "OUUUTPUT_DIAG_TARGET_HWND", "OUUUTPUT_DIAG_FAKE_KEY_AFTER_MS")
 
 
 def find(rel, what):
@@ -51,14 +51,14 @@ def engine_log_dir(tag):
     """
     d = REPO / "tmp" / f"engine-{tag}"
     d.mkdir(parents=True, exist_ok=True)
-    for f in d.glob("sainput-*.log"):
+    for f in d.glob("ouuutput-*.log"):
         f.unlink()
     return d
 
 
 def read_engine_log(d):
     """目录里最新的那份会话日志(引擎自己按时间戳命名)。"""
-    files = sorted(d.glob("sainput-*.log"))
+    files = sorted(d.glob("ouuutput-*.log"))
     if not files:
         return ""
     return files[-1].read_text(encoding="utf-8", errors="replace")
@@ -76,7 +76,7 @@ def make_wav(path):
     return path
 
 
-def run_case(host, sainput, wav, script, expect, settle=7.0, extra_env=None):
+def run_case(host, ouuutput, wav, script, expect, settle=7.0, extra_env=None):
     """起宿主(靶子)→ 起引擎(假侧车脚本)→ 读回断言 → 收摊。
 
     `extra_env`:本用例额外要带的环境变量(例如诊断用的"假装用户按了键")。
@@ -87,8 +87,8 @@ def run_case(host, sainput, wav, script, expect, settle=7.0, extra_env=None):
     hpid = epid = 0
     try:
         # 环境变量由父进程继承 —— CreateProcess 默认就把整份环境传下去
-        os.environ["SAINPUT_SINGLE_NS"] = NS
-        os.environ["SAINPUT_DIAG_AUTOSTART"] = "1200"  # 进程内部触发热键,不合成按键
+        os.environ["OUUUTPUT_SINGLE_NS"] = NS
+        os.environ["OUUUTPUT_DIAG_AUTOSTART"] = "1200"  # 进程内部触发热键,不合成按键
         os.environ["FAKE_ASR_SCRIPT"] = script
         for k, v in (extra_env or {}).items():
             os.environ[k] = v
@@ -106,10 +106,10 @@ def run_case(host, sainput, wav, script, expect, settle=7.0, extra_env=None):
             return False, "宿主窗口没起来"
 
         # 私有桌面上没有前台窗口,引擎得由我们把目标窗口直接给它
-        os.environ["SAINPUT_DIAG_TARGET_HWND"] = hex(edit)
+        os.environ["OUUUTPUT_DIAG_TARGET_HWND"] = hex(edit)
         logdir = engine_log_dir("race")
         hp, hpt, epid = hdesk.launch(
-            str(sainput),
+            str(ouuutput),
             "run --script " + str(REPO / "tools" / "fake_asr_sidecar.py")
             + f' --python "{sys.executable}"'
             + f" --feed {wav} --feed-restart"
@@ -145,7 +145,7 @@ def run_case(host, sainput, wav, script, expect, settle=7.0, extra_env=None):
                 os.environ[k] = v
 
 
-def run_focus_case(host, sainput, wav, guard, expect_in_second):
+def run_focus_case(host, ouuutput, wav, guard, expect_in_second):
     """T4.3:按住热键说话**中途切窗口**,半句不许落到新窗口。
 
     为什么这条必须跑在**真桌面**:守卫复核的是 `GetForegroundWindow()`,而私有桌面上
@@ -157,9 +157,9 @@ def run_focus_case(host, sainput, wav, guard, expect_in_second):
     hh = ht = hh2 = ht2 = hp = hpt = None
     hpid = hpid2 = epid = 0
     try:
-        os.environ["SAINPUT_SINGLE_NS"] = NS
-        os.environ["SAINPUT_DIAG_AUTOSTART"] = "1500"
-        os.environ.pop("SAINPUT_DIAG_TARGET_HWND", None)
+        os.environ["OUUUTPUT_SINGLE_NS"] = NS
+        os.environ["OUUUTPUT_DIAG_AUTOSTART"] = "1500"
+        os.environ.pop("OUUUTPUT_DIAG_TARGET_HWND", None)
         hh, ht, hpid = hdesk.launch(
             str(host), f"--life 30000 --log {REPO / 'tmp' / 'focus-hostA.log'}", "WinSta0\\Default")
         editA = None
@@ -179,7 +179,7 @@ def run_focus_case(host, sainput, wav, guard, expect_in_second):
                 + " --ime-wmchar on --no-leading-space --no-trailing-space --overlay-mode off"
                 + (" --focus-guard" if guard else "")
                 + f" --log-dir {logdir}")
-        hp, hpt, epid = hdesk.launch(str(sainput), args, "WinSta0\\Default")
+        hp, hpt, epid = hdesk.launch(str(ouuutput), args, "WinSta0\\Default")
         # **必须等"这一句真的开始了"再切窗口**:引擎从启动到第一次按下约 1.0~1.3s(实测),
         # 早了会让 B 在按下之前就成了前台 —— 那时守卫记下的本来就是 B,用例没意义
         # (2026-10-31 踩过:日志里"本句目标"和前台是同一个窗口)。
@@ -224,13 +224,13 @@ def run_focus_case(host, sainput, wav, guard, expect_in_second):
                 hdesk.terminate(pid_)
             if thr:
                 hdesk.close(thr)
-        for k in ("SAINPUT_SINGLE_NS", "SAINPUT_DIAG_AUTOSTART", "SAINPUT_DIAG_TARGET_HWND"):
+        for k in ("OUUUTPUT_SINGLE_NS", "OUUUTPUT_DIAG_AUTOSTART", "OUUUTPUT_DIAG_TARGET_HWND"):
             os.environ.pop(k, None)
 
 
 def main():
-    host = find("sainput-tsf-host.exe", "host")
-    sainput = find("sainput.exe", "engine")
+    host = find("ouuutput-tsf-host.exe", "host")
+    ouuutput = find("ouuutput.exe", "engine")
     tmp = REPO / "tmp"
     tmp.mkdir(exist_ok=True)
     wav = make_wav(tmp / "race-silence.wav")
@@ -249,7 +249,7 @@ def main():
         # 假装按了一次键;2 秒后才到的定稿必须一个字都不打,屏幕上只留流式那一版。
         ("用户自己动手 → 迟到的定稿不再注入",
          "p:你好;w:2000;f:你好世界:finish", "你好",
-         {"SAINPUT_DIAG_FAKE_KEY_AFTER_MS": "300"}),
+         {"OUUUTPUT_DIAG_FAKE_KEY_AFTER_MS": "300"}),
         # 对照组:没动手时,同一条定稿必须照常补上 —— 否则上一条就是"永远绿的"
         ("对照组:没动手 → 迟到的定稿照常补上",
          "p:你好;w:2000;f:你好世界:finish", "你好世界", None),
@@ -257,7 +257,7 @@ def main():
     # T4.3:中途切窗口 —— 守卫开时必须拦住,关时必须能复现(对照组)
     for guard, name in ((True, "焦点变更中止本句(T4.3,守卫开)"),
                         (False, "对照组:守卫关时会打进新窗口")):
-        ok, detail = run_focus_case(host, sainput, wav, guard, expect_in_second=True)
+        ok, detail = run_focus_case(host, ouuutput, wav, guard, expect_in_second=True)
         print(f"[{'PASS' if ok else 'FAIL'}] {name}: {detail}")
         if not ok:
             cases.append((name, None, None))
@@ -268,7 +268,7 @@ def main():
             fails.append(name)
             continue
         extra_env = rest[0] if rest else None
-        ok, detail = run_case(host, sainput, wav, script, expect, extra_env=extra_env)
+        ok, detail = run_case(host, ouuutput, wav, script, expect, extra_env=extra_env)
         print(f"[{'PASS' if ok else 'FAIL'}] {name}: {detail}")
         if not ok:
             fails.append(name)

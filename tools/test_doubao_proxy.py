@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from local_asr_http import decode_wav
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-WAV = r"F:\projects\sainput\models\sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20\test_wavs\0.wav"
+WAV = r"F:\projects\ouuutput\models\sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20\test_wavs\0.wav"
 
 
 def packet(mtype: int, flags: int, sequence: int, payload: bytes) -> bytes:

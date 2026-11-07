@@ -24,8 +24,8 @@ import sys
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 SCRIPT = REPO / "tools" / "tsf_register.ps1"
-DEV_DLL = REPO / "target-test" / "x86_64-pc-windows-gnu" / "release" / "sainput_tsf.dll"
-REL_DLL = REPO / "target" / "x86_64-pc-windows-gnu" / "release" / "sainput_tsf.dll"
+DEV_DLL = REPO / "target-test" / "x86_64-pc-windows-gnu" / "release" / "ouuutput_tsf.dll"
+REL_DLL = REPO / "target" / "x86_64-pc-windows-gnu" / "release" / "ouuutput_tsf.dll"
 
 
 def run(*args):
@@ -71,7 +71,7 @@ def main():
         check("verify 结论与退出码一致", rc == want_rc, f"verdict={v} 退出码={rc}(期望 {want_rc})")
 
     # B. 拿别的路径当期望 → 绝不报 OK
-    rc2, out2 = run("-Action", "verify", "-ExpectDll", str(REPO / "不存在的" / "sainput_tsf.dll"))
+    rc2, out2 = run("-Action", "verify", "-ExpectDll", str(REPO / "不存在的" / "ouuutput_tsf.dll"))
     v2 = verdict_of(out2)
     check("期望路径不符时不报 OK", v2 is not None and v2 != "OK", f"verdict={v2}")
 

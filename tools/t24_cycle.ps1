@@ -26,7 +26,7 @@ $ErrorActionPreference = 'Stop'
 if ($Log) { Start-Transcript -Path $Log -Force | Out-Null }
 $reg = Join-Path $PSScriptRoot 'tsf_register.ps1'
 if (-not $Dll) {
-  $Dll = Join-Path (Split-Path -Parent $PSScriptRoot) 'target\x86_64-pc-windows-gnu\release\sainput_tsf.dll'
+  $Dll = Join-Path (Split-Path -Parent $PSScriptRoot) 'target\x86_64-pc-windows-gnu\release\ouuutput_tsf.dll'
 }
 if (-not $ExpectDll) { $ExpectDll = $Dll }
 $TIP = "HKLM:\SOFTWARE\Microsoft\CTF\TIP\$Clsid"
@@ -48,7 +48,7 @@ function Invoke-Reg([string]$action, [string]$version) {
 
 function State-Version {
   if (-not (Test-Path $TIP)) { return '' }
-  (Get-ItemProperty -Path $TIP -ErrorAction SilentlyContinue).SainputVersion
+  (Get-ItemProperty -Path $TIP -ErrorAction SilentlyContinue).OuuutputVersion
 }
 function State-Dll {
   $k = "HKLM:\SOFTWARE\Classes\CLSID\$Clsid\InProcServer32"

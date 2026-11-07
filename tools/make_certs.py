@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Generate a local CA and a localhost server certificate for the sainput proxy."""
+"""Generate a local CA and a localhost server certificate for the ouuutput proxy."""
 from __future__ import annotations
 
 import datetime as dt
@@ -30,7 +30,7 @@ def name(cn: str) -> x509.Name:
 
 
 ca_key = key()
-ca_name = name("sainput local CA")
+ca_name = name("ouuutput local CA")
 ca = (
     x509.CertificateBuilder()
     .subject_name(ca_name)

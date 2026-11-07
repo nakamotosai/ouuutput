@@ -6,7 +6,7 @@
 用户已经开口说下一句了。屏幕上的表现是「一句话被贴上两遍」,或者「后半句直接没了」,
 还有人看到的是「**回退再重打**」(屏幕先跳回上一句,再把新句补一遍)。
 
-真 bug 在 `crates/sainput-cli/src/main.rs` 的 worker:`defer_reset` 只记住
+真 bug 在 `crates/ouuutput-cli/src/main.rs` 的 worker:`defer_reset` 只记住
 「上一句的定稿还没回来」,**没记住「新句已经出字」**。两条不同的路径都会踩它:
 
   · 新句的字写进上一句**还没归零的账**里 —— 差额算术把新句的字当成上一句的尾巴改来改去
@@ -45,12 +45,12 @@
     —— 这是判据 D 的确定性版本(D 靠宿主每 20ms 采样一次,极短的回退可能采样不到;
     E 看的是"它有没有被交给 `finalize`",不依赖采样)。
 
-⚠️ 单实例:引擎带 `SAINPUT_SINGLE_NS` 跑,只认自己的锁与自己的进程名 ——
+⚠️ 单实例:引擎带 `OUUUTPUT_SINGLE_NS` 跑,只认自己的锁与自己的进程名 ——
 **绝不会**去接管(更不会杀掉)用户正在用的那个实例。日志走**独立目录**(`--log-dir`),
 不跟用户自己那份混在一起。
 
 已知限制 / 踩过的坑(2026-11-01 实跑记录):
-  · 时间线锚在引擎**自己的**诊断热键节奏上(`SAINPUT_DIAG_AUTOSTART`:按住 HOLD_MS、间隔 1500ms),
+  · 时间线锚在引擎**自己的**诊断热键节奏上(`OUUUTPUT_DIAG_AUTOSTART`:按住 HOLD_MS、间隔 1500ms),
     侧车脚本从"第一帧 audio"起算,所以不依赖绝对墙钟。机器很忙时若 `DEADLINE_S`(16s)内还没等到
     文本,脚本会按超时读现状 —— 这时**可能**报假红:先看打印出来的"引擎/宿主二进制路径"和证据里的
     语料行、日志行,再重跑一次即可。
@@ -59,11 +59,11 @@
     两次输出一模一样。所以本用例开头会把引擎/宿主的完整路径打出来。
   · 日志/语料目录与宿主日志都**带本进程 pid**(`tmp/engine-cross-<pid>/`):两遍并行跑时,
     各自"开跑先清目录"不会再删掉对方正在写的那份(踩过:判据 C 读到空日志)。
-  · 私有桌面上没有前台窗口,目标窗口由 `SAINPUT_DIAG_TARGET_HWND` 显式给出,上屏走
+  · 私有桌面上没有前台窗口,目标窗口由 `OUUUTPUT_DIAG_TARGET_HWND` 显式给出,上屏走
     `--ime-wmchar on`(**逐帧流式**那条消息通道,和生产里"窗口线程挂着输入法"时同路)。
 
 跑法:
-    cargo build --release --target-dir target-test -p sainput-cli -p sainput-tsf-host
+    cargo build --release --target-dir target-test -p ouuutput-cli -p ouuutput-tsf-host
     python tools/test_cross_sentence.py
 """
 import json
@@ -87,9 +87,9 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 DIRS = ["target-test/x86_64-pc-windows-gnu/release", "target-test/release",
         "target/x86_64-pc-windows-gnu/release", "target/release"]
 DESKTOP = "SAI-CrossSentence"
-NS = "sainput-crosstest"
-ENV_KEYS = ("SAINPUT_SINGLE_NS", "SAINPUT_DIAG_AUTOSTART", "FAKE_ASR_SCRIPT",
-            "SAINPUT_DIAG_TARGET_HWND")
+NS = "ouuutput-crosstest"
+ENV_KEYS = ("OUUUTPUT_SINGLE_NS", "OUUUTPUT_DIAG_AUTOSTART", "FAKE_ASR_SCRIPT",
+            "OUUUTPUT_DIAG_TARGET_HWND")
 
 # 两句的正文。第二句的 final 与它的最后一帧 partial **故意不一样**:模型定稿时会把尾巴
 # 改得更准,也正好让「屏幕上的字什么时候变成 A 判据要的样子」= 第二句定稿真的落地了。
@@ -100,7 +100,7 @@ S2_PARTIALS = ["明天估计", "明天估计要下雨"]
 EXPECT = S1 + S2
 
 # 诊断自动热键:每句按住 HOLD_MS,松开后间隔 1500ms 再按下(见 main.rs 的
-# `SAINPUT_DIAG_AUTOSTART`)。所以相对"第一句按下"这一刻:
+# `OUUUTPUT_DIAG_AUTOSTART`)。所以相对"第一句按下"这一刻:
 #   第二句按下 ≈ HOLD_MS + 1500 = 2700ms,第二句松开 ≈ 2*HOLD_MS + 1500 = 3900ms。
 HOLD_MS = 1200
 LATE_REASONS = ("finish", "endpoint")
@@ -141,7 +141,7 @@ def engine_log_dir():
     独立目录:既拿得到日志(判据 C/E 全靠它),也不跟用户自己那份混在一起。
     目录名**带本进程 pid**:同一台机器上并行跑两遍这个脚本(或前后脚跑)时,各自的
     "开跑前先把上一轮的日志删掉"会互相删掉对方**正在写**的那份 —— 实测踩到:
-    判据 C 读到空日志(引擎 stdout 里明明写着这一轮的 `sainput-<stamp>.log`)。
+    判据 C 读到空日志(引擎 stdout 里明明写着这一轮的 `ouuutput-<stamp>.log`)。
     """
     d = REPO / "tmp" / f"engine-cross-{os.getpid()}"
     if d.exists():
@@ -153,7 +153,7 @@ def engine_log_dir():
 def read_engine_log(d):
     """目录里最新的那份会话日志(引擎自己按时间戳命名)。Logger 是直接 writeln 到 File,
     没有用户态缓冲 —— 引擎还在跑的时候就能读到已经写下的行。"""
-    files = sorted(d.glob("sainput-*.log"))
+    files = sorted(d.glob("ouuutput-*.log"))
     if not files:
         return ""
     return files[-1].read_text(encoding="utf-8", errors="replace")
@@ -211,7 +211,7 @@ def make_wav(path):
     return path
 
 
-def run(host, sainput, wav, script):
+def run(host, ouuutput, wav, script):
     """起宿主(靶子)→ 起引擎(假侧车脚本)→ 等文本 → 读回全部证据 → 收摊。
 
     返回 dict(text / log / rows / timeline / host_log)。判据在 check() 里算 —— 这里只取证。
@@ -224,8 +224,8 @@ def run(host, sainput, wav, script):
     host_log.unlink(missing_ok=True)
     try:
         # 环境变量由父进程继承 —— CreateProcess 默认就把整份环境传下去
-        os.environ["SAINPUT_SINGLE_NS"] = NS
-        os.environ["SAINPUT_DIAG_AUTOSTART"] = str(HOLD_MS)  # 进程内部触发热键,不合成按键
+        os.environ["OUUUTPUT_SINGLE_NS"] = NS
+        os.environ["OUUUTPUT_DIAG_AUTOSTART"] = str(HOLD_MS)  # 进程内部触发热键,不合成按键
         os.environ["FAKE_ASR_SCRIPT"] = script
 
         # `--dump-every 20`:宿主每 20ms 采一次 EDIT 内容(默认 250ms)。屏幕上那次
@@ -244,10 +244,10 @@ def run(host, sainput, wav, script):
                     "host_log": _read_text(host_log)}
 
         # 私有桌面上没有前台窗口,引擎得由我们把目标窗口直接给它
-        os.environ["SAINPUT_DIAG_TARGET_HWND"] = hex(edit)
+        os.environ["OUUUTPUT_DIAG_TARGET_HWND"] = hex(edit)
         logdir = engine_log_dir()
         hp, hpt, epid = hdesk.launch(
-            str(sainput),
+            str(ouuutput),
             "run --script " + str(REPO / "tools" / "fake_asr_sidecar.py")
             + f' --python "{sys.executable}"'
             + f" --feed {wav} --feed-restart"
@@ -377,8 +377,8 @@ def check(ev):
 
 
 def main():
-    host = find("sainput-tsf-host.exe", "host")
-    sainput = find("sainput.exe", "engine")
+    host = find("ouuutput-tsf-host.exe", "host")
+    ouuutput = find("ouuutput.exe", "engine")
     tmp = REPO / "tmp"
     tmp.mkdir(exist_ok=True)
     wav = make_wav(tmp / "cross-silence.wav")
@@ -387,7 +387,7 @@ def main():
     # 跑的是哪一份二进制必须一眼可见:`find()` 按 DIRS 顺序取第一个存在的 ——
     # target-test 下同时有 `release` 和 `x86_64-pc-windows-gnu/release` 时,
     # 取值可能不是你刚编的那份(实测踩过:红/绿对照跑成了同一份二进制)。
-    print(f"  引擎 {sainput}")
+    print(f"  引擎 {ouuutput}")
     print(f"  宿主 {host}")
     print(f"  第一句 {S1!r} / 第二句 {S2!r}")
 
@@ -396,7 +396,7 @@ def main():
         script = script_for(reason)
         print(f"\n[组 {reason}] 上一句迟到的定稿 reason={reason!r}")
         print(f"  侧车脚本 {script}")
-        ev = run(host, sainput, wav, script)
+        ev = run(host, ouuutput, wav, script)
         ok, results = check(ev)
         for code, good, msg in results:
             print(f"[{'PASS' if good else 'FAIL'}] {reason}/{code} {msg}")

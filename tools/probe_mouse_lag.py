@@ -88,7 +88,7 @@ def main():
     th = threading.Thread(target=synth_loop, args=(stop,))
     th.start()
 
-    # 用和 sainput 相同的循环写法（MsgWait 版），保证测的是"当前实现的样子"
+    # 用和 ouuutput 相同的循环写法（MsgWait 版），保证测的是"当前实现的样子"
     msg = w.MSG()
     end = time.time() + 2.0
     while time.time() < end:

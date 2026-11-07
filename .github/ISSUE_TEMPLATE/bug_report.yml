@@ -15,8 +15,8 @@ body:
   - type: input
     id: version
     attributes:
-      label: sainput 版本
-      description: 控制台标题里的 `sainput vX.Y.Z`（托盘提示里也有），或根 `Cargo.toml` 的 `version`
+      label: ouuutput 版本
+      description: 控制台标题里的 `ouuutput vX.Y.Z`（托盘提示里也有），或根 `Cargo.toml` 的 `version`
       placeholder: "0.2.2"
     validations:
       required: true
@@ -34,7 +34,7 @@ body:
     id: hotkey
     attributes:
       label: 热键配置
-      description: 贴 `sainput.conf` 里的 `hotkey` 行；用鼠标热键也写清是哪个键
+      description: 贴 `ouuutput.conf` 里的 `hotkey` 行；用鼠标热键也写清是哪个键
       placeholder: "hotkey = rightctrl"
     validations:
       required: true
@@ -46,14 +46,14 @@ body:
       description: UIPI 会拦住 SendInput，这类窗口打不进去已是已知限制，勾上便于快速定位
       options:
         - label: 目标窗口是以管理员身份运行的（或 UAC 提权过的程序）
-        - label: sainput 本身是以管理员身份启动的
+        - label: ouuutput 本身是以管理员身份启动的
 
   - type: textarea
     id: steps
     attributes:
       label: 复现步骤
       placeholder: |
-        1. 启动 sainput，光标放进记事本
+        1. 启动 ouuutput，光标放进记事本
         2. 按住右 Ctrl 说「……」，松开
         3. ...
     validations:
@@ -77,15 +77,15 @@ body:
   - type: textarea
     id: config
     attributes:
-      label: sainput config 输出
-      description: 在项目根目录执行 `sainput.exe config`，粘贴完整输出（只有路径和配置项名，不含语音内容）
+      label: ouuutput config 输出
+      description: 在项目根目录执行 `ouuutput.exe config`，粘贴完整输出（只有路径和配置项名，不含语音内容）
       render: text
 
   - type: textarea
     id: logs
     attributes:
       label: 日志片段（可选）
-      description: 贴 `logs\sainput-<时间>.log` 里相关的几行；请删掉无关的识别原文
+      description: 贴 `logs\ouuutput-<时间>.log` 里相关的几行；请删掉无关的识别原文
       render: text
 
   - type: checkboxes

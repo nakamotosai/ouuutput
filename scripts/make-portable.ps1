@@ -1,8 +1,8 @@
 # Build the green package: unpack and run, models and Python runtime included.
 #
 # Outputs (under dist\, already gitignored):
-#   dist\sainput-<ver>-win64\          folder form
-#   dist\sainput-<ver>-win64.zip       the same folder zipped
+#   dist\ouuutput-<ver>-win64\          folder form
+#   dist\ouuutput-<ver>-win64.zip       the same folder zipped
 #
 # Prerequisites (run once):
 #   powershell -ExecutionPolicy Bypass -File scripts\fetch-models.ps1     # models
@@ -12,7 +12,7 @@
 #   powershell -ExecutionPolicy Bypass -File scripts\make-portable.ps1
 #   powershell -ExecutionPolicy Bypass -File scripts\make-portable.ps1 -Overwrite
 #
-# The package is gated on `cargo test --release -p sainput-core` (the same command CI
+# The package is gated on `cargo test --release -p ouuutput-core` (the same command CI
 # runs, see CONTRIBUTING.md 3.1). `cargo build` never compiles test targets, so without
 # that gate a release can be tagged while its unit tests do not even compile.
 #
@@ -47,13 +47,13 @@ if ((Test-Path $CargoBin) -and ($env:PATH -notlike "*$CargoBin*")) { $env:PATH =
 # Gate the package on the unit tests. Run it HERE, before the layout block below
 # deletes or rewrites anything under dist\, so a failing gate leaves the previous
 # package (folder and zip) untouched.
-Write-Host "[pack] cargo test --release -p sainput-core"
-& cargo test --release -p sainput-core
-if ($LASTEXITCODE -ne 0) { throw "cargo test --release -p sainput-core failed - refusing to package" }
+Write-Host "[pack] cargo test --release -p ouuutput-core"
+& cargo test --release -p ouuutput-core
+if ($LASTEXITCODE -ne 0) { throw "cargo test --release -p ouuutput-core failed - refusing to package" }
 
 # ---------------------------------------------------------------- layout -----
-$Dist = Join-Path $Root "dist\sainput-$Version-win64"
-$Zip  = Join-Path $Root "dist\sainput-$Version-win64.zip"
+$Dist = Join-Path $Root "dist\ouuutput-$Version-win64"
+$Zip  = Join-Path $Root "dist\ouuutput-$Version-win64.zip"
 if (Test-Path $Dist) {
     if (-not $Overwrite) { throw "Dist exists: $Dist (pass -Overwrite)" }
     Remove-Item -Recurse -Force $Dist
@@ -63,7 +63,7 @@ New-Item -ItemType Directory -Force $Dist | Out-Null
 # ---------------------------------------------------------------- exe --------
 # Reuse an existing build; build fresh if none. Accepts both MSVC and GNU layouts.
 $Exe = $null
-foreach ($c in @("target\release\sainput.exe", "target\x86_64-pc-windows-gnu\release\sainput.exe")) {
+foreach ($c in @("target\release\ouuutput.exe", "target\x86_64-pc-windows-gnu\release\ouuutput.exe")) {
     $p = Join-Path $Root $c
     if (Test-Path $p) { $Exe = $p; break }
 }
@@ -71,14 +71,14 @@ if (-not $Exe) {
     Write-Host "[pack] no existing build found, running cargo build --release"
     & cargo build --release --workspace
     if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
-    $Exe = Join-Path $Root "target\release\sainput.exe"
-    if (-not (Test-Path $Exe)) { $Exe = Join-Path $Root "target\x86_64-pc-windows-gnu\release\sainput.exe" }
+    $Exe = Join-Path $Root "target\release\ouuutput.exe"
+    if (-not (Test-Path $Exe)) { $Exe = Join-Path $Root "target\x86_64-pc-windows-gnu\release\ouuutput.exe" }
 }
 Write-Host "[pack] binary = $Exe"
-Copy-Item $Exe (Join-Path $Dist "sainput.exe")
+Copy-Item $Exe (Join-Path $Dist "ouuutput.exe")
 
 # ---------------------------------------------------------------- docs -------
-foreach ($f in @("LICENSE", "THIRD_PARTY_NOTICES.md", "sainput.conf.example")) {
+foreach ($f in @("LICENSE", "THIRD_PARTY_NOTICES.md", "ouuutput.conf.example")) {
     $src = Join-Path $Root $f
     if (Test-Path $src) { Copy-Item $src $Dist }
     else { Write-Warning "missing $f" }
@@ -169,34 +169,34 @@ Get-ChildItem $Dist -Recurse -Directory -Filter "__pycache__" -ErrorAction Silen
 
 # ---------------------------------------------------------------- launchers --
 # The green package differs from the source tree: the exe sits at the package root,
-# so these launchers set SAINPUT_PYTHON to the bundled interpreter and never touch the system Python.
+# so these launchers set OUUUTPUT_PYTHON to the bundled interpreter and never touch the system Python.
 $L1 = Join-Path $Dist "start.bat"
 $L2 = Join-Path $Dist "run.bat"
 
 Set-Content $L1 @"
 @echo off
 setlocal EnableExtensions
-REM  sainput - local voice input method. Double-click to start.
+REM  ouuutput - local voice input method. Double-click to start.
 REM  console-hiding trick: see scripts\start.bat in the source repo for the long
-REM  version. Do not "simplify" this - start /b + sainput FreeConsole is what
+REM  version. Do not "simplify" this - start /b + ouuutput FreeConsole is what
 REM  removes the window.
 cd /d "%~dp0"
 set "PYTHONIOENCODING=utf-8"
-if defined SAINPUT_PYTHON set "PY=%SAINPUT_PYTHON%" else set "PY=%~dp0runtime\python.exe"
+if defined OUUUTPUT_PYTHON set "PY=%OUUUTPUT_PYTHON%" else set "PY=%~dp0runtime\python.exe"
 if not exist "%PY%" (
     echo.
-    echo   [sainput] bundled python not found: %PY%
-    echo   [sainput] re-download the package, or set SAINPUT_PYTHON to your own python 3.11+.
+    echo   [ouuutput] bundled python not found: %PY%
+    echo   [ouuutput] re-download the package, or set OUUUTPUT_PYTHON to your own python 3.11+.
     echo.
     pause
     exit /b 1
 )
-set "SAINPUT_PYTHON=%PY%"
+set "OUUUTPUT_PYTHON=%PY%"
 echo.
-echo   sainput - starting. Tray icon = running.
+echo   ouuutput - starting. Tray icon = running.
 echo   Quit: right-click the tray icon, then Exit.
 echo.
-start "" /b "%~dp0sainput.exe" run --hide-console
+start "" /b "%~dp0ouuutput.exe" run --hide-console
 endlocal
 exit /b 0
 "@ -Encoding ASCII
@@ -207,20 +207,20 @@ setlocal EnableExtensions
 REM  run.bat - foreground runner with arguments passed through.
 cd /d "%~dp0"
 set "PYTHONIOENCODING=utf-8"
-if defined SAINPUT_PYTHON set "PY=%SAINPUT_PYTHON%" else set "PY=%~dp0runtime\python.exe"
+if defined OUUUTPUT_PYTHON set "PY=%OUUUTPUT_PYTHON%" else set "PY=%~dp0runtime\python.exe"
 if not exist "%PY%" (
-    echo   [sainput] bundled python not found: %PY%
-    echo   [sainput] set SAINPUT_PYTHON to your own python 3.11+ and retry.
+    echo   [ouuutput] bundled python not found: %PY%
+    echo   [ouuutput] set OUUUTPUT_PYTHON to your own python 3.11+ and retry.
     exit /b 1
 )
-set "SAINPUT_PYTHON=%PY%"
-"%~dp0sainput.exe" %*
+set "OUUUTPUT_PYTHON=%PY%"
+"%~dp0ouuutput.exe" %*
 exit /b %ERRORLEVEL%
 "@ -Encoding ASCII
 
 # ---------------------------------------------------------------- README -----
 Set-Content (Join-Path $Dist "README.txt") @"
-sainput $Version - local Windows voice input (no network at runtime)
+ouuutput $Version - local Windows voice input (no network at runtime)
 
   1. Unzip anywhere. No installer needed.
   2. Double-click start.bat.
@@ -236,10 +236,10 @@ are NOT covered by the application's MIT license - see
 THIRD_PARTY_NOTICES.md.
 
 If you prefer your own Python (3.11+) with sherpa-onnx installed, set
-SAINPUT_PYTHON=C:\path\to\python.exe before starting; the bundled
+OUUUTPUT_PYTHON=C:\path\to\python.exe before starting; the bundled
 runtime\ folder is then ignored.
 
-Docs / issues: https://github.com/nakamotosai/sainput
+Docs / issues: https://github.com/nakamotosai/ouuutput
 "@ -Encoding ASCII
 
 # ---------------------------------------------------------------- zip --------

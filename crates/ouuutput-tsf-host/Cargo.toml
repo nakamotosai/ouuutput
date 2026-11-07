@@ -1,0 +1,17 @@
+[package]
+name = "ouuutput-tsf-host"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "TSF 上屏回归用的目标应用壳(窗口 + EDIT + 读回)"
+
+[[bin]]
+name = "ouuutput-tsf-host"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+# 只借它的 GUID 常量与 Guid 布局:宿主必须按**同一个** CLSID/IID 去 QI,
+# 复制一份迟早会漂。
+ouuutput-tsf = { path = "../ouuutput-tsf" }

@@ -40,9 +40,9 @@ jobs:
       - name: Build workspace (release)
         run: cargo build --release --workspace
 
-      # 单测只在 sainput-core：cli 包是参数解析 + 主循环，没有可离线跑的单测。
-      - name: Unit tests (sainput-core)
-        run: cargo test --release -p sainput-core
+      # 单测只在 ouuutput-core：cli 包是参数解析 + 主循环，没有可离线跑的单测。
+      - name: Unit tests (ouuutput-core)
+        run: cargo test --release -p ouuutput-core
 
       # setup-python 从 v6 起换成 node24(同上,留在 v5 会带弃用注解)。
       - name: Setup Python

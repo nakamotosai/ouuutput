@@ -1,14 +1,14 @@
 ﻿# 托盘开关的**行为**回归:直接给托盘窗口发菜单命令,验证开关真的生效 + 落盘。
 #
 # 为什么不用截图:截图只能看长相,验证不了「点了之后配置文件有没有改、控制台有没有响应」。
-# 这里模拟用户点菜单项:给 SainputTrayWnd 发 WM_COMMAND(id)。
+# 这里模拟用户点菜单项:给 OuuutputTrayWnd 发 WM_COMMAND(id)。
 #   ID_PUNCT_SPACE=10 / ID_MERGE_TERMS=11 / ID_CTX_BIAS=12 / ID_CTX_VERBOSE=13
 #   ID_LEADING_SPACE=14 / ID_FIX_CASE=15 / ID_TRAILING_SPACE=16
 # 每个开关都点**两次**(切走再切回),这样不管用户原本怎么设的,跑完都回到原值。
 param([string]$Conf = "")
 $ErrorActionPreference = "Continue"
 $root = Split-Path -Parent $PSScriptRoot
-if (-not $Conf) { $Conf = Join-Path $root "sainput.conf" }
+if (-not $Conf) { $Conf = Join-Path $root "ouuutput.conf" }
 Add-Type -TypeDefinition @'
 using System;
 using System.Text;
@@ -23,7 +23,7 @@ public class TW {
     EnumWindows(delegate(IntPtr h, IntPtr l) {
       StringBuilder sb = new StringBuilder(256);
       GetClassName(h, sb, 256);
-      if (sb.ToString() == "SainputTrayWnd") { r = h; return false; }
+      if (sb.ToString() == "OuuutputTrayWnd") { r = h; return false; }
       return true;
     }, IntPtr.Zero);
     return r;
@@ -32,7 +32,7 @@ public class TW {
 '@
 
 $h = [TW]::Find()
-if ($h -eq [IntPtr]::Zero) { Write-Output "❌ 找不到托盘窗口（sainput 在跑吗？）"; exit 1 }
+if ($h -eq [IntPtr]::Zero) { Write-Output "❌ 找不到托盘窗口（ouuutput 在跑吗？）"; exit 1 }
 Write-Output "托盘窗口 hwnd = $h"
 
 function Get-ConfValue($key) {

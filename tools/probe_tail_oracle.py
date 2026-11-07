@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Offline oracle for dumped live sessions.
 
-sainput_doubao_proxy.py --dump-dir writes <session>.wav (exactly the audio the
+ouuutput_doubao_proxy.py --dump-dir writes <session>.wav (exactly the audio the
 live recognizer heard) plus <session>.txt (the text the IME committed). This
 script replays every dumped wav through a *fresh* sidecar the same way the live
 release path does (all audio -> pad 600 ms room noise -> finish) and prints the

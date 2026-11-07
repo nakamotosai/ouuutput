@@ -1,7 +1,7 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-    Download and verify the sherpa-onnx models sainput needs.
+    Download and verify the sherpa-onnx models ouuutput needs.
 
 .DESCRIPTION
     Downloads model archives from the official sherpa-onnx GitHub releases into
@@ -27,7 +27,7 @@
 #>
 [CmdletBinding()]
 param(
-    # 160ms is the default model compiled into sainput (see crates/sainput-cli/src/main.rs).
+    # 160ms is the default model compiled into ouuutput (see crates/ouuutput-cli/src/main.rs).
     [ValidateSet('160ms', '480ms', '960ms', 'nemotron', 'bilingual', 'zh14m', 'sensevoice', 'all')]
     [string]$Variant = '160ms',
 
@@ -234,7 +234,7 @@ if ($Variant -eq 'all') {
     $names = @($Variant)
 }
 
-Write-Host 'sainput model fetcher'
+Write-Host 'ouuutput model fetcher'
 Write-Host ("  repo   : {0}" -f $RepoRoot)
 Write-Host ("  models : {0}" -f $ModelsDir)
 Write-Host ("  python : {0}" -f (Get-ToolPath -Name 'python'))
@@ -281,6 +281,6 @@ if ($DryRun) {
     Write-Host 'dry-run complete.' -ForegroundColor Green
 } else {
     Write-Host 'All requested models are in place.' -ForegroundColor Green
-    Write-Host 'Next: sainput expects them under <repo>\models\ (config keys: model_dir / punct_dir).'
+    Write-Host 'Next: ouuutput expects them under <repo>\models\ (config keys: model_dir / punct_dir).'
 }
 exit 0

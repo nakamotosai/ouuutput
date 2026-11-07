@@ -1,6 +1,6 @@
-# sainput —— 低延迟、全本地的语音输入法
+# ouuutput 输入法 —— 低延迟、全本地的语音输入法
 
-**Windows 10/11 x64** · **MIT License** · **Rust 主体 + Python ASR 子进程** · 版本 `0.2.6`
+**Windows 10/11 x64** · **MIT License** · **Rust 主体 + Python ASR 子进程** · 版本 `0.3.0`
 
 按住热键说话，松开上屏；文字在说话过程中逐字出现，自带标点、阿拉伯数字归一化和热词。
 识别与标点全部在本机完成，**运行期不联网**。
@@ -10,11 +10,11 @@
 → 光标放进能打字的窗口（记事本 / 浏览器 / 微信 / VSCode）
 → 按住【右 Ctrl】说话，松开
 → 文字逐字上屏
-→ 托盘图标常驻；退出走「右键托盘 → 退出 sainput」
+→ 托盘图标常驻；退出走「右键托盘 → 退出 ouuutput」
 ```
 
 > 用 `start.bat` 启动时控制台会自动收起（脚本带了 `--hide-console`）。想留一个调试窗口，
-> 直接跑 `sainput run`（不带 `--hide-console`）即可。
+> 直接跑 `ouuutput run`（不带 `--hide-console`）即可。
 
 ---
 
@@ -33,7 +33,7 @@
 | 上下文偏置（记住光标前刚打的词） | ✅ 默认开，灵感来自本地输入法的通行做法 |
 | 英文拆字合并（`A P I` → `API`）、英文大小写修复 | ✅ 默认开 |
 | 标点转空格（中文标点 → 空格，问号保留） | ✅ 托盘 / `--punct-mode space` |
-| 配置文件（不用改 bat） | ✅ `sainput.conf` |
+| 配置文件（不用改 bat） | ✅ `ouuutput.conf` |
 | 按一下开始 / 再按一下结束 | ✅ `toggle = true`（**默认是按住说话**） |
 | 单实例保护 / 托盘常驻 / 开机自启 | ✅ |
 | 纯离线 | ✅ 装完就不再需要网络 |
@@ -63,8 +63,8 @@
 从零开始：
 
 ```powershell
-git clone <repo-url> sainput
-cd sainput
+git clone <repo-url> ouuutput
+cd ouuutput
 
 # 1) Python 依赖（ASR sidecar 用）
 pip install -r requirements.txt
@@ -79,22 +79,22 @@ build.bat build --release
 start.bat
 ```
 
-`start.bat` 只是启动编译好的 `sainput.exe`，不会留窗口；托盘图标才是它在跑的标志。
-想直接看启动参数，在 `target\<triple>\release\` 下跑 `sainput.exe run`。
+`start.bat` 只是启动编译好的 `ouuutput.exe`，不会留窗口；托盘图标才是它在跑的标志。
+想直接看启动参数，在 `target\<triple>\release\` 下跑 `ouuutput.exe run`。
 
 ### 配置从哪来
 
-仓库根下的 `sainput.conf` **不随仓库分发**（它属于个人偏好）。第一次使用：
+仓库根下的 `ouuutput.conf` **不随仓库分发**（它属于个人偏好）。第一次使用：
 
 ```powershell
-copy sainput.conf.example sainput.conf
+copy ouuutput.conf.example ouuutput.conf
 copy hotwords.example.txt hotwords.txt    # 可选
 ```
 
 两个文件都不存在时也能跑，所有项走内置默认值。
 
 跑离线打表 / 推理脚本（`tools/bench_*.py`、`tools/probe_stream.py`）另需：
-`pip install -r requirements-dev.txt`（只多一个 `soundfile`，运行 sainput 本身不需要）。
+`pip install -r requirements-dev.txt`（只多一个 `soundfile`，运行 ouuutput 本身不需要）。
 
 更多文档：[模型选型与延迟实测](docs/model-selection.md) ·
 [排查手册](docs/TROUBLESHOOTING.md) · [模型目录说明](models/README.md)。
@@ -108,10 +108,10 @@ copy hotwords.example.txt hotwords.txt    # 可选
 | 说话 | 按住热键（默认 **右 Ctrl**），说完松开 |
 | 换热键 | 托盘 → 换热键：鼠标侧键 X1 / X2、右 Ctrl、右 Alt、F8、F9、F10；配置文件里还认左右 Shift / Ctrl / Alt、CapsLock、反引号、`0xXX` 虚拟键码与鼠标中键，例如 `hotkey = f9`、`hotkey = mousex1`、`hotkey = mousemiddle` |
 | 开始/结束各按一下 | `toggle = true`，或 `--toggle` |
-| 退出 | 右键托盘图标 → 退出 sainput |
-| 键盘卡住（按键没弹起） | 托盘 → 「释放卡住的键」，或命令行 `sainput release-keys` |
+| 退出 | 右键托盘图标 → 退出 ouuutput |
+| 键盘卡住（按键没弹起） | 托盘 → 「释放卡住的键」，或命令行 `ouuutput release-keys` |
 
-托盘菜单里可实时切换（改完立刻生效，并写回 `sainput.conf`）：
+托盘菜单里可实时切换（改完立刻生效，并写回 `ouuutput.conf`）：
 
 - 换热键
 - 标点转空格（保留问号）
@@ -144,21 +144,21 @@ copy hotwords.example.txt hotwords.txt    # 可选
 预览（不用真录音）：
 
 ```powershell
-sainput overlay-demo --mode bar --seconds 10
-sainput overlay-demo --mode orb --seconds 6
-sainput overlay-demo --mode edge --tint aurora
+ouuutput overlay-demo --mode bar --seconds 10
+ouuutput overlay-demo --mode orb --seconds 6
+ouuutput overlay-demo --mode edge --tint aurora
 ```
 
 ---
 
 ## 5. 配置
 
-`sainput.conf` 一行一个 `key = value`，`#` / `;` 开头是注释。**命令行参数优先于配置文件**。
+`ouuutput.conf` 一行一个 `key = value`，`#` / `;` 开头是注释。**命令行参数优先于配置文件**。
 
-> ⚠️ 下面是**示例值，不是当前生效值**。真实生效值用 `sainput config` 看；仓库里的
-> `sainput.conf.example` 同样是示例。改完重启 `run` 生效（托盘里的开关例外，点了就生效）。
+> ⚠️ 下面是**示例值，不是当前生效值**。真实生效值用 `ouuutput config` 看；仓库里的
+> `ouuutput.conf.example` 同样是示例。改完重启 `run` 生效（托盘里的开关例外，点了就生效）。
 > 注释必须**独占一行**：解析器不剥行内 `#`，`hotkey = f9  # 注释` 会把整串当值。
-> `sainput.conf.example` 因而采用「说明写在上方，下一行是裸的 `# key = value`」的写法。
+> `ouuutput.conf.example` 因而采用「说明写在上方，下一行是裸的 `# key = value`」的写法。
 
 ```ini
 # 热键：rightctrl（默认）/ leftctrl / rightalt / leftalt / rightshift / leftshift /
@@ -187,14 +187,14 @@ threads = 2
 `ctx_hotwords` `leading_space` `verbose_ctx` `log` `log_dir` `script` `tail_ms`
 `tail_max_ms` `tail_quiet_ms` `tail_pad_ms` `tail_rms`。
 
-`sainput config` 打印当前生效的主要配置（模型 / 标点 / ITN / 热词 / 尾巴参数等），不会回显整份文件。
+`ouuutput config` 打印当前生效的主要配置（模型 / 标点 / ITN / 热词 / 尾巴参数等），不会回显整份文件。
 
 ### 热词
 
 把常说但通用模型容易听错的词写进 `hotwords.txt`（一行一个，`#` 是注释）：
 
 ```
-sainput
+ouuutput
 sherpa-onnx
 大语言模型
 ```
@@ -202,7 +202,7 @@ sherpa-onnx
 非空时会自动切到 `modified_beam_search`（更准、稍慢）。只有注释（等于空表）时不会切，
 热词文件缺失也只是少一层偏置，不会把语音输入搞挂。
 
-仓库里的 `hotwords.example.txt` 全是示例注释（`# sainput` 这种），复制成 `hotwords.txt`
+仓库里的 `hotwords.example.txt` 全是示例注释（`# ouuutput` 这种），复制成 `hotwords.txt`
 后需要**去掉行首 `#`** 才会生效。
 
 ---
@@ -210,17 +210,17 @@ sherpa-onnx
 ## 6. 命令行
 
 ```
-sainput devices                              列出输入设备
-sainput record out.wav [--seconds N]         采一段存成 16k 单声道 WAV
-sainput probe [--seconds N]                  只看采集节奏 / 抖动 / 丢帧
-sainput replay in.wav [--dry-run]            把 WAV 走完整流水线（离线验收，不注入）
-sainput render "一段文字"                     只跑 ITN + 标点 + 润色
-sainput config                               打印当前生效的主要配置
-sainput overlay-demo [--mode bar|orb|edge]   预览悬浮显示（默认 bar）
+ouuutput devices                              列出输入设备
+ouuutput record out.wav [--seconds N]         采一段存成 16k 单声道 WAV
+ouuutput probe [--seconds N]                  只看采集节奏 / 抖动 / 丢帧
+ouuutput replay in.wav [--dry-run]            把 WAV 走完整流水线（离线验收，不注入）
+ouuutput render "一段文字"                     只跑 ITN + 标点 + 润色
+ouuutput config                               打印当前生效的主要配置
+ouuutput overlay-demo [--mode bar|orb|edge]   预览悬浮显示（默认 bar）
          [--seconds N] [--tint white|rainbow|amber|cyan|aurora]
-sainput release-keys                         给所有修饰键补发 keyup（键盘卡住时的救命命令）
-sainput run [options]                        常驻：按住热键说话，松开上屏
-sainput selftest inject "文字"                只测上屏路径
+ouuutput release-keys                         给所有修饰键补发 keyup（键盘卡住时的救命命令）
+ouuutput run [options]                        常驻：按住热键说话，松开上屏
+ouuutput selftest inject "文字"                只测上屏路径
 ```
 
 ### 常用开关
@@ -285,14 +285,14 @@ powershell -File scripts/fetch_models.ps1 -DryRun                # 只打印将�
 ```
 
 可选 `-Variant`：`160ms`（默认）/ `480ms` / `960ms` / `nemotron` / `bilingual` / `zh14m` / `all`；
-另有 `-KeepArchive` 保留 `.tar.bz2`。换模型也可以直接改 `model_dir`（一行 `sainput.conf`）。
+另有 `-KeepArchive` 保留 `.tar.bz2`。换模型也可以直接改 `model_dir`（一行 `ouuutput.conf`）。
 
 - 选型与全部实测数据：[`docs/model-selection.md`](docs/model-selection.md)
 - 每个模型的上游地址、体积、适用场景：[`models/README.md`](models/README.md)
 
 ### 跟手感：延迟卡在哪（实测）
 
-结论：**卡在模型，不在 sainput**。延迟分三段：
+结论：**卡在模型，不在 ouuutput**。延迟分三段：
 
 | 段 | 实测 | 能不能再压 |
 |---|---|---|
@@ -323,7 +323,7 @@ powershell -File scripts/fetch_models.ps1 -DryRun                # 只打印将�
 但 **0.6B 参数在测试机（2 线程）跑不动** —— 按墙钟测更新间隔 337ms > 音频间隔 192ms，
 也就是**比实时慢**（越说越落后）；开到 8 线程才勉强追平（204ms vs 192ms），CPU 基本吃满。
 
-**结论：想更快只能换引擎 / 换硬件；sainput 这一侧已经压到底了。**
+**结论：想更快只能换引擎 / 换硬件；ouuutput 这一侧已经压到底了。**
 
 ### 模型横评（同一批真实语音）
 
@@ -360,7 +360,7 @@ python tools/bench_models.py --wavs logs/corpus models/<候选模型目录>
 * **只留说话那几秒** —— 一次按下到定稿之间的采集帧,不留环境音、不留常驻循环;
 * **只在本机** —— 不发往任何网络;
 * **有上限会滚动** —— 默认 200 句 / 300MB,超了删最旧的(先到哪个算哪个);
-* **关掉**:`SAINPUT_CORPUS=off`(`SAINPUT_CORPUS_MAX` / `SAINPUT_CORPUS_MB` 可改上限);
+* **关掉**:`OUUUTPUT_CORPUS=off`(`OUUUTPUT_CORPUS_MAX` / `OUUUTPUT_CORPUS_MB` 可改上限);
 * **不是偷偷录**:启动时会打一行 `语料留存:<路径> / 上限 ...`;关了会话日志(`--no-log`)时
   它自动一并关闭 —— 没有日志就不该留音频。
 
@@ -400,7 +400,7 @@ python tools/bench_models.py --wavs logs/corpus models/<候选模型目录>
 **别再重复试的方向**（已证无效）：
 
 - `beam = true`：更容易错（「昨天」→「昨天天」），耗时无优势。
-- 空白惩罚（sidecar 的 `blank_penalty` 参数，sainput 不暴露配置键、也没有对应命令行开关）0 / 0.5 / 1.5：输出逐字相同。
+- 空白惩罚（sidecar 的 `blank_penalty` 参数，ouuutput 不暴露配置键、也没有对应命令行开关）0 / 0.5 / 1.5：输出逐字相同。
 - 把音频衰减到 -40dB：重复度基本不变 —— 重复不是电平问题。
 
 ### 重复修复兜底（`tools/repair.py`）
@@ -483,7 +483,7 @@ powershell -File tools/test_tail_screen.ps1 -Label new  # 连带屏幕上打出�
 python tools/probe_stream.py --wav <wav> --stop-at 3968 --pad-ms 480 --pad-kind noise
 ```
 
-> 最后一条是 `tools/probe_stream.py` 的参数（离线探针），不是 `sainput` 的开关。
+> 最后一条是 `tools/probe_stream.py` 的参数（离线探针），不是 `ouuutput` 的开关。
 
 判定标准：旧行为**必须**吞掉末尾（`…FREQUENTLY。`），新行为**必须**留住（`…FREQUENTLY频繁。`）。
 
@@ -508,12 +508,12 @@ build.bat build --release
 - GCC 16 删了 `libgcc_eh.a` 但 rustc 仍传 `-lgcc_eh`（用空归档顶上）。
 - `.bat` 里别写中文注释，cmd 的 OEM 代码页会吃成乱码（本仓库脚本已全部 ASCII）。
 
-产物在 `target\<triple>\release\sainput.exe`。
+产物在 `target\<triple>\release\ouuutput.exe`。
 
-### 换版本 / 排查前先看:sainput **自己**的 TSF 残留怎么修(`tools/ime_repair.ps1`)
+### 换版本 / 排查前先看:ouuutput **自己**的 TSF 残留怎么修(`tools/ime_repair.ps1`)
 
 我们的 TSF 薄壳做组合态实验时,**`ActivateProfile(..., TF_IPPMF_FORPROCESS)` 会连带把该语言的
-默认输入法改成自己**(`crates/sainput-tsf-host/src/profile.rs` 有记录;PLAN-NEXT 的 R1 判决据此
+默认输入法改成自己**(`crates/ouuutput-tsf-host/src/profile.rs` 有记录;PLAN-NEXT 的 R1 判决据此
 把 TSF 降级为"可选模式、产品不主动激活")。残留只会落在两处**用户级(HKCU)**设置里:
 
 - `HKCU\Control Panel\International\User Profile\InputMethodOverride` —— 默认输入法覆盖
@@ -530,13 +530,13 @@ powershell -File tools/ime_repair.ps1 -Register     # 反向:把我们的 tip �
 ```
 
 我们认的"我们"**只有一个**(仓库权威常量):CLSID `{FCC45A5E-09C4-410A-B696-BDD2DA66A21F}`
-(`crates/sainput-tsf/src/lib.rs:92` 的 `CLSID_SAINPUT_TSF`)、profile `{6A1F2B7C-3D4E-4F50-9A1B-2C3D4E5F6071}`
-(`crates/sainput-tsf-host/src/profile.rs:23` 的 `PROFILE_GUID`),与 `tools/tsf_register.ps1` 同源。
+(`crates/ouuutput-tsf/src/lib.rs:92` 的 `CLSID_OUUUTPUT_TSF`)、profile `{6A1F2B7C-3D4E-4F50-9A1B-2C3D4E5F6071}`
+(`crates/ouuutput-tsf-host/src/profile.rs:23` 的 `PROFILE_GUID`),与 `tools/tsf_register.ps1` 同源。
 
 要点:
 
 - **身份闸(硬)**:`-Fix` / `-Register` 动手之前**必须先确认**目标 CLSID 的 `InProcServer32` 指向的是
-  **我们的 DLL**(路径里含 `sainput`)。**对不上就硬拒绝、什么都不改**(`exit 5`),绝不"猜它是我们的"。
+  **我们的 DLL**(路径里含 `ouuutput`)。**对不上就硬拒绝、什么都不改**(`exit 5`),绝不"猜它是我们的"。
   这条闸是为一次真实事故加的:本机默认输入法其实是另一套**独立第三方输入法** Metasequoia 水杉输入法
   (`{E3062E9A-...}`,`C:\WINDOWS\system32\IME\MetasequoiaIME\...`)—— 它是**用户自己在用的**,
   不是我们的残留。本机我们的 TSF 当前**根本没注册**,所以 `-Check` 会直说"身份闸不通过、
@@ -582,10 +582,10 @@ powershell -File tools/ime_repair.ps1 -Register     # 反向:把我们的 tip �
 ## 11. 隐私
 
 - **识别与标点全程离线**：sherpa-onnx 在本机 CPU 上跑，运行期不发起任何网络请求。
-- **日志含你的输入文本**：每次 `run` 写 `logs/sainput-<时间>.log`（partial / final / 尾巴信息）。
+- **日志含你的输入文本**：每次 `run` 写 `logs/ouuutput-<时间>.log`（partial / final / 尾巴信息）。
   不想留就 `log = false`，或用 `--log-dir` 指到临时目录。
 - **`.ctx_hotwords.txt` 含光标前的上下文词**（上下文偏置的中间产物），只写本地、不进仓库。
-- 个人配置 `sainput.conf`、`hotwords.txt`、`logs/`、`models/` 全部在 `.gitignore` 里，
+- 个人配置 `ouuutput.conf`、`hotwords.txt`、`logs/`、`models/` 全部在 `.gitignore` 里，
   不会被误提交。
 - 项目不上报任何遥测、不内置账号体系。
 

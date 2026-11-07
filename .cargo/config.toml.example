@@ -34,7 +34,7 @@
 # # 实际走 libgcc_s / libgcc.a，这个空归档不会被真正使用。
 # #
 # # 之所以要显式 -L 到 .tools：rustc 传给链接器的搜索路径里没有仓库目录。
-# rustflags = ["-L", "C:/path/to/sainput/.tools"]
+# rustflags = ["-L", "C:/path/to/ouuutput/.tools"]
 # # 相对路径也行（相对的是你执行 cargo 时的当前目录）：
 # # rustflags = ["-L", ".tools"]
 #
@@ -46,7 +46,7 @@
 #
 #   rustup target add i686-pc-windows-msvc
 #   cargo build --release --target i686-pc-windows-msvc --target-dir target-test-msvc \
-#       -p sainput-tsf -p sainput-tsf-host
+#       -p ouuutput-tsf -p ouuutput-tsf-host
 #
 # 为什么走 MSVC 而不是 gnu:w64devkit **没有 i686 的 gcc 运行时**
 # (lib/gcc 下只有 x86_64-w64-mingw32;实测 i686-pc-windows-gnu 链不过 `_Unwind_Resume`)。

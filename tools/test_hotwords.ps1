@@ -18,7 +18,7 @@ $out = "$env:TEMP\hw_$Label.err"
 
 # 写一个"一定有词"的临时热词表（不碰生产 hotwords.txt）
 $hwf = "$env:TEMP\hw_$Label.txt"
-[System.IO.File]::WriteAllText($hwf, "FREQUENTLY`n语音输入`nsainput`n", (New-Object System.Text.UTF8Encoding($false)))
+[System.IO.File]::WriteAllText($hwf, "FREQUENTLY`n语音输入`nouuutput`n", (New-Object System.Text.UTF8Encoding($false)))
 
 $psi = New-Object System.Diagnostics.ProcessStartInfo
 $psi.FileName = $py

@@ -2,7 +2,7 @@
 setlocal EnableExtensions
 
 REM ===========================================================================
-REM  sainput build entry point.
+REM  ouuutput build entry point.
 REM
 REM  Usage:
 REM    build.bat                    same as "build.bat build --release"
@@ -52,8 +52,8 @@ if defined GCC_DIR for %%D in ("%GCC_DIR%") do set "GCC_DIR=%%~fD"
 if "%NEED_GNU%"=="1" (
     if not defined GCC_DIR (
         echo.
-        echo   [sainput] This repo is configured for x86_64-pc-windows-gnu,
-        echo   [sainput] but no gcc.exe was found.
+        echo   [ouuutput] This repo is configured for x86_64-pc-windows-gnu,
+        echo   [ouuutput] but no gcc.exe was found.
         echo.
         echo   Fix it in one of these ways:
         echo     - install w64devkit and set   set W64DEVKIT=C:\path\to\w64devkit
@@ -69,29 +69,29 @@ if "%NEED_GNU%"=="1" (
 
 if defined GCC_DIR (
     set "PATH=%GCC_DIR%;%PATH%"
-    echo [sainput] gcc: %GCC_DIR%\gcc.exe
+    echo [ouuutput] gcc: %GCC_DIR%\gcc.exe
 )
 
 where cargo >nul 2>&1
 if errorlevel 1 (
     echo.
-    echo   [sainput] cargo was not found on PATH.
-    echo   [sainput] Install Rust from https://rustup.rs and reopen the terminal.
+    echo   [ouuutput] cargo was not found on PATH.
+    echo   [ouuutput] Install Rust from https://rustup.rs and reopen the terminal.
     echo.
     exit /b 1
 )
 
 if "%~1"=="" (
-    echo [sainput] cargo build --release
+    echo [ouuutput] cargo build --release
     call cargo build --release
 ) else (
-    echo [sainput] cargo %*
+    echo [ouuutput] cargo %*
     call cargo %*
 )
 
 set "RC=%ERRORLEVEL%"
 if not "%RC%"=="0" (
     echo.
-    echo   [sainput] cargo exited with code %RC%
+    echo   [ouuutput] cargo exited with code %RC%
 )
 endlocal & exit /b %RC%

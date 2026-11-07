@@ -38,10 +38,10 @@ UP = 1 | (SCAN << 16) | (1 << 30) | (1 << 31)
 
 def find_host():
     for d in DIRS:
-        p = REPO / d / "sainput-tsf-host.exe"
+        p = REPO / d / "ouuutput-tsf-host.exe"
         if p.exists():
             return p
-    print("FAIL: sainput-tsf-host.exe not built")
+    print("FAIL: ouuutput-tsf-host.exe not built")
     sys.exit(2)
 
 

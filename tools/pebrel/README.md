@@ -1,6 +1,6 @@
 # Pebrel 的 `pane.compose` 补丁(本机维护)
 
-`sainput` 的 `ime_wmchar = pebrel` 走 Pebrel 自己的**组合态缓冲层**:文本先进应用里的
+`ouuutput` 的 `ime_wmchar = pebrel` 走 Pebrel 自己的**组合态缓冲层**:文本先进应用里的
 输入缓冲(零按键、零 PTY 副作用,可无限次整段改写),定稿才作为**一次写入**提交。
 这条路要求 Pebrel 带 `pane.compose` 方法 —— 上游还没发布,所以补丁在本机维护。
 
@@ -22,7 +22,7 @@ Copy-Item "$PWD\tools\pebrel\dist\pebrel-2.3.1+compose.exe" `
 # 3. 重开 Pebrel
 ```
 
-sainput 那边一个字都不用改(`ime_wmchar = pebrel` 一直有效)。
+ouuutput 那边一个字都不用改(`ime_wmchar = pebrel` 一直有效)。
 
 ## 回滚
 
@@ -31,7 +31,7 @@ Copy-Item "$PWD\tools\pebrel\dist\pebrel-2.3.1.orig.exe" `
           "$env:LOCALAPPDATA\Programs\Pebrel\pebrel.exe" -Force
 ```
 
-再把 `sainput.conf` 改回 `ime_wmchar = on:pebrel.exe`。
+再把 `ouuutput.conf` 改回 `ime_wmchar = on:pebrel.exe`。
 
 ## 怎么确认当前跑的是哪一版
 

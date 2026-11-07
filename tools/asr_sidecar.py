@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""sainput ASR sidecar —— 流式识别 + 标点 + ITN。全本地，零网络。
+"""ouuutput ASR sidecar —— 流式识别 + 标点 + ITN。全本地，零网络。
 
 协议（stdin/stdout 各一行一个 JSON）：
   in : {"cmd":"audio","pcm":"<base64 i16le mono 16k>"}
@@ -14,7 +14,7 @@
                                      tail_chunks = 定稿时补解了多少帧(收尾不再限 4 帧/轮)
                                      finish 还会带 "twopass"(本句是否真用了二遍)与 "twopass_ms"
        {"type":"rendered","text":...}
-       {"type":"dbg","n":int,"still_ready":bool}   仅在 SAINPUT_PUMP_DEBUG=1 时发(探针用)
+       {"type":"dbg","n":int,"still_ready":bool}   仅在 OUUUTPUT_PUMP_DEBUG=1 时发(探针用)
        {"type":"error","msg":...,"n":int}          n = 本进程累计错误条数(同类错误 1s 只发一条)
 
 为什么标点内联、不再拆一个进程:CT-Transformer int8 在 ~20 字上 p50 只有 5ms、
@@ -432,7 +432,7 @@ def main():
     })
 
     # ---- 上下文偏置 -----------------------------------------------------
-    # 前端（sainput 主循环）会把「光标前最近的词」写进这个文件；每句开始时读一次，
+    # 前端（ouuutput 主循环）会把「光标前最近的词」写进这个文件；每句开始时读一次，
     # 作为**该句专属**的热词喂给识别器（sherpa-onnx 的 create_stream 支持 per-stream 热词）。
     # 为什么用热词而不是改解码器：热词能在线生效、不需要重启 sidecar，也天然是"偏置"而不是"硬替换"。
     # ⚠️ 这是**本地**偏置（喂热词），不是把历史文本编码上传的云端偏置。
@@ -526,7 +526,7 @@ def main():
             rec.decode_stream(stream)
             _n += 1
         pump_last_decodes[0] = _n
-        if os.environ.get("SAINPUT_PUMP_DEBUG"):
+        if os.environ.get("OUUUTPUT_PUMP_DEBUG"):
             # 只在调试时开(probe_tail.py 会带上这个环境变量):让探针能看见
             # 「这一轮解了几帧 / 解完还剩没解完的帧」,用来判断积压。
             emit({"type": "dbg", "n": _n, "still_ready": bool(rec.is_ready(stream))})

@@ -1,13 +1,13 @@
 # 排查手册
 
 出问题按下面的顺序查：**日志 → 前台跑一遍 → 配置 → 依赖 → 模型 → 权限**。
-sainput 的报错都带 `[sainput]` 前缀，几乎每条都直接告诉你去修什么。
+ouuutput 的报错都带 `[ouuutput]` 前缀，几乎每条都直接告诉你去修什么。
 
 ---
 
 ## 0. 先看日志
 
-每次 `run` 都会写 `logs\sainput-<本地时间>.log`（`log = false` 可关）。三行样例：
+每次 `run` 都会写 `logs\ouuutput-<本地时间>.log`（`log = false` 可关）。三行样例：
 
 ```
 P   6543ms  对我            [raw] 对我            (2.9ms)
@@ -27,7 +27,7 @@ run.bat run --show-console
 
 `run.bat` 是前台运行（窗口留着，方便读输出）；`start.bat` 是后台启动（窗口会消失）。
 
-查当前生效的配置（命令行 > `sainput.conf` > 默认）：
+查当前生效的配置（命令行 > `ouuutput.conf` > 默认）：
 
 ```bat
 run.bat config
@@ -42,7 +42,7 @@ run.bat config
 | 检查 | 命令 | 期望 |
 |---|---|---|
 | 编译产物 | `start.bat` 的提示 | 找 `target\release\` 或 `target\x86_64-pc-windows-gnu\release\` |
-| 没编译 | `build.bat` | 成功产出 `sainput.exe` |
+| 没编译 | `build.bat` | 成功产出 `ouuutput.exe` |
 | sidecar 脚本 | 看 `tools\asr_sidecar.py` 是否存在 | 必须在仓库里 |
 | Python | `run.bat` 启动后看有没有 python 相关报错 | 见第 2 节 |
 | 模型 | `models\sherpa-onnx-x-asr-160ms-...\` 是否存在 | 见第 3 节 |
@@ -59,7 +59,7 @@ run.bat config
 | 卡在等 sidecar | 模型首次加载慢 / Python 依赖缺 | 前台跑 `run.bat run`，看真实报错 |
 
 > `find_root` 的规则：从 exe 所在目录往上最多 6 层找 `tools\asr_sidecar.py`，
-> 找不到就退回当前工作目录。所以**别把 sainput.exe 单独拷出去用**。
+> 找不到就退回当前工作目录。所以**别把 ouuutput.exe 单独拷出去用**。
 
 ---
 
@@ -88,9 +88,9 @@ python -c "import numpy, sherpa_onnx; print(sherpa_onnx.__version__)"
   python = C:\path\to\venv\Scripts\python.exe
   ```
 
-- sainput 找 Python 的顺序：环境变量 `SAINPUT_PYTHON`（最高优先）→ PATH 里的 `python`
+- ouuutput 找 Python 的顺序：环境变量 `OUUUTPUT_PYTHON`（最高优先）→ PATH 里的 `python`
   → `python3` → `py`。双击 `start.bat` 时 PATH 可能不含 Python，所以直接配
-  `python = ...`（或设 `SAINPUT_PYTHON`）最省事。
+  `python = ...`（或设 `OUUUTPUT_PYTHON`）最省事。
 - 控制台里中文乱码：`start.bat` / `run.bat` 已经设了 `PYTHONIOENCODING=utf-8`。
 
 ---
@@ -117,7 +117,7 @@ powershell -ExecutionPolicy Bypass -File scripts\fetch_models.ps1           # �
 上屏走 `SendInput`，Windows 的 **UIPI** 会拦住「普通权限进程 → 管理员权限窗口」的注入。
 
 - 验证方法：记事本里正常、以管理员运行的程序里没反应 → 就是 UIPI，不是 bug。
-- 处理：以**同等权限**运行 sainput（右键 → 以管理员身份运行 `start.bat`），
+- 处理：以**同等权限**运行 ouuutput（右键 → 以管理员身份运行 `start.bat`），
   或者把目标程序降到普通权限。
 - 彻底解法是 TSF 输入法（路线图 M3），当前版本没做。
 
@@ -142,12 +142,12 @@ powershell -ExecutionPolicy Bypass -File scripts\fetch_models.ps1           # �
    run.bat release-keys
    ```
 
-   这个命令只是补发一次 keyup，**不需要 sainput 正在跑**，也不会启动常驻进程。
+   这个命令只是补发一次 keyup，**不需要 ouuutput 正在跑**，也不会启动常驻进程。
 
 **绝对不要**：
 
-- `Stop-Process -Force`、任务管理器「结束任务」、`taskkill /F` 杀 sainput。
-- 正确退出永远是:右键托盘 → 退出 sainput。
+- `Stop-Process -Force`、任务管理器「结束任务」、`taskkill /F` 杀 ouuutput。
+- 正确退出永远是:右键托盘 → 退出 ouuutput。
 
 ### 5.1 鼠标侧键卡住(2026-10-28 真实事故,本机持续约 20 分钟)
 
@@ -171,15 +171,15 @@ powershell -ExecutionPolicy Bypass -File scripts\fetch_models.ps1           # �
 
 **处理(按代价从小到大)**:
 
-1. 先杀掉「和 sainput 抢同一个侧键」的钩子拥有者(查 `MetasequoiaImeServer` / 变量:任何装了
+1. 先杀掉「和 ouuutput 抢同一个侧键」的钩子拥有者(查 `MetasequoiaImeServer` / 变量:任何装了
    WH_MOUSE_LL 又在处理 X1 的东西)。杀掉后 `GetAsyncKeyState(VK_XBUTTON1)` 常常自己回到 up。
 2. **物理按一下侧键再松开** —— 一次真实的 down/up 对能解开(本机验证有效)。前提同上:当时没有吞键钩子。
 3. `run.bat release-keys`(补发 X1/X2/中键 + 修饰键抬起)。
-   ⚠️ **sainput 正跑着的时候这条对热键本身无效**:命令是另一个进程,但它注入的 XUP 仍会经过
-   sainput 自己的全局鼠标钩子并被吃掉(见上面推论 2)。所以要么先退出 sainput,要么用托盘菜单里
+   ⚠️ **ouuutput 正跑着的时候这条对热键本身无效**:命令是另一个进程,但它注入的 XUP 仍会经过
+   ouuutput 自己的全局鼠标钩子并被吃掉(见上面推论 2)。所以要么先退出 ouuutput,要么用托盘菜单里
    在进程内的那条(实现上必须先卸钩子再注入)。
 
-**为什么这条要写进 sainput 自己的代码**:见 `HANDOFF.md` §7 已知限制 #3。
+**为什么这条要写进 ouuutput 自己的代码**:见 `HANDOFF.md` §7 已知限制 #3。
 
 ---
 
@@ -187,20 +187,20 @@ powershell -ExecutionPolicy Bypass -File scripts\fetch_models.ps1           # �
 
 - **双击 `start.bat` 后不该留下窗口。** 如果留了，先确认残留的是不是你自己的终端
   （cmd / Windows Terminal 本来就有一个窗口）。
-- `start.bat` 用 `start /b` 让 sainput 继承脚本的控制台，脚本随即退出，
-  控制台跟着消失；sainput 起来后自己 `FreeConsole`，所以不受影响。
+- `start.bat` 用 `start /b` 让 ouuutput 继承脚本的控制台，脚本随即退出，
+  控制台跟着消失；ouuutput 起来后自己 `FreeConsole`，所以不受影响。
   改成 `start ""`（新建窗口）或直接双击 exe 都会留下黑窗口 —— 这是已踩过的坑。
-- 想在启动后立刻收起控制台：`sainput.conf` 里 `hide_console = true`，
+- 想在启动后立刻收起控制台：`ouuutput.conf` 里 `hide_console = true`，
   或命令行 `--hide-console`（`start.bat` 已经带上了）。
 - 只看进程在不在（**只查，不要杀**）：
 
   ```bat
-  tasklist | findstr /i sainput
+  tasklist | findstr /i ouuutput
   ```
 
 - 托盘图标才是「它在跑」的可靠标志。图标不见但进程还在：
   - **Explorer 崩溃 / 更新 / 重启会把通知区域整个重建**，所有托盘图标一起消失。
-    sainput 收到系统的 `TaskbarCreated` 广播后会自动把图标重新挂回去。
+    ouuutput 收到系统的 `TaskbarCreated` 广播后会自动把图标重新挂回去。
   - 图标只是收进了「隐藏的图标」区域时，点任务栏的 `^` 找一下。
   - 图标确实找不到了，或者想强制切到最新构建：**再双击一次桌面快捷方式**。新实例
     会让旧实例正常退出（退不掉就强制结束，连 sidecar 一起）然后自己接管 ——
@@ -252,11 +252,11 @@ powershell -ExecutionPolicy Bypass -File scripts\fetch_models.ps1           # �
 
 要知道两件事:
 
-- 生效时会有一行 `[sainput] 上屏改用 Pebrel 组合态缓冲层:…`
+- 生效时会有一行 `[ouuutput] 上屏改用 Pebrel 组合态缓冲层:…`
 - **Pebrel 被官方更新覆盖后这条能力就没了**:说一句会在日志/控制台看到
   `这台 Pebrel 还没有组合态缓冲层(pane.compose)`。这时把 `ime_wmchar` 改回
   `on:pebrel.exe` 就立刻回到老路;要补回组合态按 `tools/pebrel/README.md` 的三步
-  (关掉 Pebrel → 覆盖 `pebrel.exe` → 重开),sainput 这边一个字都不用改。
+  (关掉 Pebrel → 覆盖 `pebrel.exe` → 重开),ouuutput 这边一个字都不用改。
 
 ---
 
@@ -278,17 +278,17 @@ run.bat run                            :: 全流程
 ## 10. 水杉输入法(Doubao 代理)这条路上的尾巴
 
 > 🔚 **这条路 2026-10-28 已退役(保留本节作为历史记录)**。
-> 侧键语音现在直接跑在 sainput 原生路径上(`hotkey = mousex1` + 本仓 `tools/asr_sidecar.py`),
+> 侧键语音现在直接跑在 ouuutput 原生路径上(`hotkey = mousex1` + 本仓 `tools/asr_sidecar.py`),
 > 水杉不再参与:它的 `[voice_input]` 已关(`voice_input = false`、`hotkey_ralt = false`),
 > `asr_endpoint` 也从本机代理还原为默认。
 > 退役的胶水件(`tools/x1_to_ralt.ps1`、`voice_stack_supervisor.ps1`、`check_voice_stack.ps1`、
-> 启动文件夹里的 `Sainput Voice Stack.lnk`)已搬进 `F:\archive\20261028-075641-sainput-x1-glue\`。
+> 启动文件夹里的 `Ouuutput Voice Stack.lnk`)已搬进 `F:\archive\20261028-075641-ouuutput-x1-glue\`。
 > 退役原因:两套前端抢同一个侧键,且那条链的吞键钩子会让侧键闩在按下 → 整个鼠标点不动
 > (见 §5.1)。下面这些「尾巴」分析对 `asr_sidecar.py` 本身仍然成立。
 
 水杉输入法自带豆包流式客户端,配置里把 `asr_endpoint` 指到本机
 `wss://127.0.0.1:19000/api/v3/sauc/bigmodel_async`
-(`tools/sainput_doubao_proxy.py`),由它把音频喂给这个 sidecar。
+(`tools/ouuutput_doubao_proxy.py`),由它把音频喂给这个 sidecar。
 这条路上「松手后最后一个词没了」有两个来源,先分清是哪一个。
 
 **一、定稿时解码落后 → sidecar 丢尾巴(已修,2026-10-25)**
@@ -310,7 +310,7 @@ run.bat run                            :: 全流程
 
 **二、音频里就没有尾巴 → 不在 sidecar 这边**
 
-代理每段会话都写一行带时间戳的汇总,拿它和 `%TEMP%\sainput_x1_ralt.log`
+代理每段会话都写一行带时间戳的汇总,拿它和 `%TEMP%\ouuutput_x1_ralt.log`
 (侧键按下/抬起的绝对时间)对一下:
 
 ```
@@ -328,8 +328,8 @@ run.bat run                            :: 全流程
 要坐实第二种,用 `--dump-dir` 存下每段的原始音频 + 最终文本,再离线重放同一段音频:
 
 ```bat
-pythonw tools\sainput_doubao_proxy.py --dump-dir "%TEMP%\sainput_sessions"
-python  tools\probe_tail_oracle.py --dir "%TEMP%\sainput_sessions"
+pythonw tools\ouuutput_doubao_proxy.py --dump-dir "%TEMP%\ouuutput_sessions"
+python  tools\probe_tail_oracle.py --dir "%TEMP%\ouuutput_sessions"
 ```
 
 `live` 与 `oracle` 一致 → 定稿路径没问题,问题在音频或模型本身;
@@ -340,19 +340,19 @@ python  tools\probe_tail_oracle.py --dir "%TEMP%\sainput_sessions"
 ## 11. 侧键、波形、提示音都正常,但一个字都不出
 
 > 🔚 **本节写于「水杉 + Doubao 代理」时代(2026-10-28 那条前端已退役)**。侧键语音现在直接跑
-> sainput 原生路径,判据换成应用自己的输出:
+> ouuutput 原生路径,判据换成应用自己的输出:
 > - 识别器子进程死了 → 控制台/日志一行
->   `[sainput] worker 退出: sidecar 提前退出(检查模型路径与 Python 依赖)`
->   (`crates/sainput-core/src/asr.rs` 用 stdout EOF 判活)。**原生路径只报错,不会自动换一个识别器**
->   —— 代理时代那条自动重生逻辑随代理一起退役了,重启 sainput 即可。
-> - 逐帧细节看项目根的 `logs\sainput-*.log`,不再是 `%TEMP%\sainput_doubao_proxy.log`。
+>   `[ouuutput] worker 退出: sidecar 提前退出(检查模型路径与 Python 依赖)`
+>   (`crates/ouuutput-core/src/asr.rs` 用 stdout EOF 判活)。**原生路径只报错,不会自动换一个识别器**
+>   —— 代理时代那条自动重生逻辑随代理一起退役了,重启 ouuutput 即可。
+> - 逐帧细节看项目根的 `logs\ouuutput-*.log`,不再是 `%TEMP%\ouuutput_doubao_proxy.log`。
 >
 > 下面的「对号入座」保留作历史参考。
 
 先看代理日志最近的几行:
 
 ```bat
-powershell -NoProfile -Command "Get-Content $env:TEMP\sainput_doubao_proxy.log -Tail 15"
+powershell -NoProfile -Command "Get-Content $env:TEMP\ouuutput_doubao_proxy.log -Tail 15"
 ```
 
 按日志里的说法对号入座:
@@ -360,13 +360,13 @@ powershell -NoProfile -Command "Get-Content $env:TEMP\sainput_doubao_proxy.log -
 - `session error: ... exited (code=N)` → 识别器子进程死了。`exit=` 后面是死法:
   `-1 (0xFFFFFFFF)` 是被外部强杀(`taskkill`、任务管理器、清理脚本),
   `-1073741819 (0xC0000005)` 之类是它自己崩了。原因写在
-  `%TEMP%\sainput_sidecar.log`(子进程的 stderr,以前这里进的是 DEVNULL,
+  `%TEMP%\ouuutput_sidecar.log`(子进程的 stderr,以前这里进的是 DEVNULL,
   所以死因查不到)。
 - `sidecar died ... respawning` 后跟着 `sidecar ready (pid=... 7.1s)` → 代理已经
   自动换了一个新的识别器,等这行出现再按一次侧键就行(换的那 7 秒里按下的
   那一次不会有文字)。不需要重启代理,更不需要重启输入法。
 - `already running; exit` → 这个端口已经有代理在跑(单实例互斥量按端口区分,
-  19000 的名字仍是 `Local\SainputDoubaoProxy`),先关掉旧的。
+  19000 的名字仍是 `Local\OuuutputDoubaoProxy`),先关掉旧的。
 - `model load failed: ...` → 模型路径或文件有问题,代理主动退出并把原因写进日志。
 
 想确认此刻有几个识别器、挂在谁下面:

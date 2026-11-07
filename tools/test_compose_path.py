@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""T0.3 回归:引擎的确定性上屏入口(`sainput selftest compose`)真的能把文本打到目标窗口。
+"""T0.3 回归:引擎的确定性上屏入口(`ouuutput selftest compose`)真的能把文本打到目标窗口。
 
-为什么需要它:`sainput` 平时靠"按住热键说话"才上屏,自动化回归绝不能这么干
+为什么需要它:`ouuutput` 平时靠"按住热键说话"才上屏,自动化回归绝不能这么干
 (抢前台 + 要麦克风)。`selftest compose` 把同一套 `StreamWriter` 算术(前缀 / 退格 / 补打)
 直接喂一段文本,并允许指定目标窗口。
 
@@ -22,14 +22,14 @@ import hdesk  # noqa: E402
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 HOST_CANDIDATES = [
-    REPO / "target-test/x86_64-pc-windows-gnu/release/sainput-tsf-host.exe",
-    REPO / "target-test/release/sainput-tsf-host.exe",
-    REPO / "target/x86_64-pc-windows-gnu/release/sainput-tsf-host.exe",
+    REPO / "target-test/x86_64-pc-windows-gnu/release/ouuutput-tsf-host.exe",
+    REPO / "target-test/release/ouuutput-tsf-host.exe",
+    REPO / "target/x86_64-pc-windows-gnu/release/ouuutput-tsf-host.exe",
 ]
-SAINPUT_CANDIDATES = [
-    REPO / "target-test/x86_64-pc-windows-gnu/release/sainput.exe",
-    REPO / "target-test/release/sainput.exe",
-    REPO / "target/x86_64-pc-windows-gnu/release/sainput.exe",
+OUUUTPUT_CANDIDATES = [
+    REPO / "target-test/x86_64-pc-windows-gnu/release/ouuutput.exe",
+    REPO / "target-test/release/ouuutput.exe",
+    REPO / "target/x86_64-pc-windows-gnu/release/ouuutput.exe",
 ]
 DESKTOP = "SAI-ComposePath"
 CN = "你好,这是确定性入口。(abc123)"
@@ -59,8 +59,8 @@ def wait_edit(pid, h, control="edit", timeout=10.0):
 
 
 def main():
-    host_exe = first(HOST_CANDIDATES, "sainput-tsf-host.exe")
-    sainput = first(SAINPUT_CANDIDATES, "sainput.exe")
+    host_exe = first(HOST_CANDIDATES, "ouuutput-tsf-host.exe")
+    ouuutput = first(OUUUTPUT_CANDIDATES, "ouuutput.exe")
     fails = []
 
     pre = CN[:6] + "错错错"
@@ -99,7 +99,7 @@ def main():
                 continue
             # 引擎也起在同一张私有桌面上(见文件头:窗口句柄是桌面作用域的)
             ep, et, _ = hdesk.launch(
-                str(sainput),
+                str(ouuutput),
                 "selftest compose " + text + f" --hwnd {hex(edit)} --mode wmchar " + " ".join(extra),
                 DESKTOP)
             mid_got = None

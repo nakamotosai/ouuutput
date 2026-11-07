@@ -8,8 +8,8 @@
 为什么要单独一个脚本、而不是在 Rust 里做：
     读焦点输入框要靠 UI Automation 的 COM 接口。手写 vtable 偏移一旦对不上就是
     **静默内存错乱** —— 这正是本项目用「子进程 + JSON」把 sherpa-onnx 隔离出去的理由
-    （见 crates/sainput-core/src/asr.rs 文件头）。Python 侧已装 `uiautomation`，
-    读起来安全得多。Rust 只做纯文本抽词（crates/sainput-core/src/context.rs）。
+    （见 crates/ouuutput-core/src/asr.rs 文件头）。Python 侧已装 `uiautomation`，
+    读起来安全得多。Rust 只做纯文本抽词（crates/ouuutput-core/src/context.rs）。
 
 与云端方案的差异（照实说）：云端方案把你刚发出去的历史文本打包上传、由**云端模型**消费；
 我们只能读**当前光标前文**、且只能喂**本地热词表**。方向一致，强度不如云端。

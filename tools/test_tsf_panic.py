@@ -5,18 +5,18 @@
 我们崩一次,崩的是别人正在用的程序 —— 所以每个跨 FFI 的入口都必须 `catch_unwind` 兜住,
 失败只丢这一次调用(`E_FAIL`),进程继续活着。
 
-做法:薄壳里有个诊断开关(环境变量 `SAINPUT_TSF_PANIC_TEST`),会让 `Activate` 直接 panic。
+做法:薄壳里有个诊断开关(环境变量 `OUUUTPUT_TSF_PANIC_TEST`),会让 `Activate` 直接 panic。
 判据:
   1. `Activate` 返回 `E_FAIL`(0x80004005),不是崩溃、也不是 S_OK;
   2. 宿主进程**正常退出**(exit 0)—— 它活着走完了后面每一步;
   3. 薄壳日志里没有任何"进程没了"的痕迹(日志是它自己写的,说明它还写过别的行)。
 
 换一套位数组合来跑(32 位薄壳 + 32 位宿主):
-    cargo build --release --target i686-pc-windows-msvc --target-dir target-test-msvc -p sainput-tsf -p sainput-tsf-host
-    SAINPUT_TSF_DIR=target-test-msvc/i686-pc-windows-msvc/release python tools/test_tsf_activate.py
+    cargo build --release --target i686-pc-windows-msvc --target-dir target-test-msvc -p ouuutput-tsf -p ouuutput-tsf-host
+    OUUUTPUT_TSF_DIR=target-test-msvc/i686-pc-windows-msvc/release python tools/test_tsf_activate.py
 
 跑法:
-    cargo build --release --target-dir target-test -p sainput-tsf -p sainput-tsf-host
+    cargo build --release --target-dir target-test -p ouuutput-tsf -p ouuutput-tsf-host
     python tools/test_tsf_panic.py
 """
 import os
@@ -34,8 +34,8 @@ DESKTOP = "SAI-TsfPanic"
 
 
 def find(rel):
-    override = os.environ.get("SAINPUT_TSF_DIR")
-    if override and rel != "sainput.exe":
+    override = os.environ.get("OUUUTPUT_TSF_DIR")
+    if override and rel != "ouuutput.exe":
         p = pathlib.Path(override) / rel
         if p.exists():
             return p
@@ -48,22 +48,22 @@ def find(rel):
 
 
 def main():
-    host = find("sainput-tsf-host.exe")
-    dll = find("sainput_tsf.dll")
+    host = find("ouuutput-tsf-host.exe")
+    dll = find("ouuutput_tsf.dll")
     tmp = REPO / "tmp"
     tmp.mkdir(exist_ok=True)
     hlog = tmp / "panic-host.log"
     if hlog.exists():
         hlog.unlink()
 
-    os.environ["SAINPUT_TSF_PANIC_TEST"] = "1"
+    os.environ["OUUUTPUT_TSF_PANIC_TEST"] = "1"
     h = hdesk.open_desktop(DESKTOP)
     hp = ht = None
     try:
         hp, ht, pid = hdesk.launch(str(host), f"--life 1500 --log {hlog} --load-tip {dll}", DESKTOP)
         code = hdesk.wait_exit(hp, 30000)
     finally:
-        os.environ.pop("SAINPUT_TSF_PANIC_TEST", None)
+        os.environ.pop("OUUUTPUT_TSF_PANIC_TEST", None)
         if hp:
             hdesk.close(hp)
         if ht:

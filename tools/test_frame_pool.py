@@ -13,7 +13,7 @@
   3. 每句都出过帧(证明链路真的在跑,而不是"没采到所以没错")。
 
 ⚠️ 会打开**默认麦克风**若干秒(和产品本身一样,只统计不落盘)。
-⚠️ 引擎跑在私有桌面 + `SAINPUT_SINGLE_NS` 隔离,不打扰、也不接管正在用的实例。
+⚠️ 引擎跑在私有桌面 + `OUUUTPUT_SINGLE_NS` 隔离,不打扰、也不接管正在用的实例。
 
 跑法:
     cargo build --release
@@ -30,8 +30,8 @@ import hdesk  # noqa: E402
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 DESKTOP = "SAI-FramePool"
-NS = "sainput-framepool"
-ENV_KEYS = ("SAINPUT_SINGLE_NS", "SAINPUT_DIAG_AUTOSTART", "SAINPUT_DIAG_TARGET_HWND")
+NS = "ouuutput-framepool"
+ENV_KEYS = ("OUUUTPUT_SINGLE_NS", "OUUUTPUT_DIAG_AUTOSTART", "OUUUTPUT_DIAG_TARGET_HWND")
 POOL_RE = re.compile(r"帧池 出(\d+) 未命中(\d+) 复用(\d+) 回收失败(\d+)")
 CAND = [
     "target/x86_64-pc-windows-gnu/release",
@@ -49,15 +49,15 @@ def first(rel, what):
 
 
 def main():
-    sainput = first("sainput.exe", "引擎")
-    host = first("sainput-tsf-host.exe", "靶子宿主")
+    ouuutput = first("ouuutput.exe", "引擎")
+    host = first("ouuutput-tsf-host.exe", "靶子宿主")
     d = hdesk.open_desktop(DESKTOP)
     saved = {k: os.environ.get(k) for k in ENV_KEYS}
     hh = hp = None
     hpid = epid = 0
     try:
-        os.environ["SAINPUT_SINGLE_NS"] = NS
-        os.environ["SAINPUT_DIAG_AUTOSTART"] = "1500"
+        os.environ["OUUUTPUT_SINGLE_NS"] = NS
+        os.environ["OUUUTPUT_DIAG_AUTOSTART"] = "1500"
         hh, ht, hpid = hdesk.launch(
             str(host), f"--life 60000 --log {REPO / 'tmp' / 'framepool-host.log'}", DESKTOP)
         edit = None
@@ -70,11 +70,11 @@ def main():
         if not edit:
             print("FAIL: 宿主窗口没起来")
             return 1
-        os.environ["SAINPUT_DIAG_TARGET_HWND"] = hex(edit)
+        os.environ["OUUUTPUT_DIAG_TARGET_HWND"] = hex(edit)
 
         before = {p.name for p in (REPO / "logs").glob("*.log")}
         hp, hpt, epid = hdesk.launch(
-            str(sainput), "run --hotkey rightctrl --no-tray --no-overlay --dry-run", DESKTOP)
+            str(ouuutput), "run --hotkey rightctrl --no-tray --no-overlay --dry-run", DESKTOP)
         # 跑到攒够 4 句(自动按键:按住 1500ms / 间隔 1500ms)
         log = None
         rows = []

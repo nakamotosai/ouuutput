@@ -5,7 +5,7 @@
 #     包括用户没保存的工作。改成只杀「本脚本自己启动的那一个 PID」。
 #  2) 老脚本用 Ctrl+A/Ctrl+C 读回屏幕，**覆写用户的真实剪贴板且不还原**；
 #     有的只在成功路径还原，中途异常就丢了。
-#  3) 测试注入的是全局右 Ctrl，会和正在跑的 sainput 抢同一个钩子事件。
+#  3) 测试注入的是全局右 Ctrl，会和正在跑的 ouuutput 抢同一个钩子事件。
 #
 # 用法：
 #   . "$PSScriptRoot\_hygiene.ps1"
@@ -14,7 +14,7 @@
 #   ... 跑测试 ...
 #   Restore-TestHygiene              # 还原剪贴板（finally 里必须调）
 #   Stop-TestNotepad $np             # 只杀我们自己起的那个
-#   Stop-SainputSafely -Id $p.Id     # 结束自己起的 sainput：先 release-keys，再按 PID 杀
+#   Stop-OuuutputSafely -Id $p.Id     # 结束自己起的 ouuutput：先 release-keys，再按 PID 杀
 
 $script:__savedClip = $null
 $script:__savedClipOk = $false
@@ -69,11 +69,11 @@ function Initialize-TestHygiene {
 
     # 2) 生产实例还开着的话，测试的全局右 Ctrl 会和它抢事件 —— 先提醒，别静默出错。
     #    这里只做「只读」检查：绝不按名字全局杀（强杀会丢 keyup，整块键盘会失灵）。
-    $live = @(Get-Process -Name 'sainput' -ErrorAction SilentlyContinue)
+    $live = @(Get-Process -Name 'ouuutput' -ErrorAction SilentlyContinue)
     if ($live.Count -gt 0) {
-        Write-Warning ("检测到正在运行的 sainput (PID " + ($live.Id -join ',') + ")。" +
+        Write-Warning ("检测到正在运行的 ouuutput (PID " + ($live.Id -join ',') + ")。" +
                        '测试会注入全局右 Ctrl，两者会互抢钩子事件；' +
-                       '请先右键托盘退出 sainput 再跑；卡住时用 sainput.exe release-keys。')
+                       '请先右键托盘退出 ouuutput 再跑；卡住时用 ouuutput.exe release-keys。')
         Write-Warning "本脚本不会替你杀掉它（那是用户的日常实例）。"
     }
 }
@@ -128,11 +128,11 @@ function Stop-TestNotepad($pids) {
     }
 }
 
-function Stop-SainputSafely {
+function Stop-OuuutputSafely {
     param([int]$Id, [string]$Exe)
-    # 结束「本脚本自己起的」sainput。两条铁律：
+    # 结束「本脚本自己起的」ouuutput。两条铁律：
     #  1) 先补发 keyup：强杀会丢 keyup，系统以为修饰键一直按着，表现为整块键盘失灵。
-    #  2) 只杀这个 PID。永远不要按进程名批量结束 sainput ——
+    #  2) 只杀这个 PID。永远不要按进程名批量结束 ouuutput ——
     #     那会连用户日常在跑的实例一起杀掉。
     if (-not $Exe) { $Exe = $exe }
     if ($Exe -and (Test-Path -LiteralPath $Exe)) {
@@ -140,7 +140,7 @@ function Stop-SainputSafely {
     }
     if ($Id -gt 0) {
         $proc = Get-Process -Id $Id -ErrorAction SilentlyContinue
-        if ($proc -and $proc.ProcessName -eq 'sainput') {
+        if ($proc -and $proc.ProcessName -eq 'ouuutput') {
             Stop-Process -Id $Id -ErrorAction SilentlyContinue
         }
     }

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""T6.1/T6.6 回归:边缘光的帧率/带宽/亮度/速度能在托盘里现场改,并且写回 sainput.conf。
+"""T6.1/T6.6 回归:边缘光的帧率/带宽/亮度/速度能在托盘里现场改,并且写回 ouuutput.conf。
 
 为什么这么测(和仓库既有的 `tools/test_tray_menu.ps1` 同一套原理):
 截图只能看"长相",验证不了"点完配置有没有变"。这里直接给托盘窗口发
@@ -9,12 +9,12 @@
   亮度 亮(350+2) → edge_peak   = 0.62
   速度 慢(360+0) → edge_speed  = 0.6
 
-⚠️ 会改 `sainput.conf`:跑前备份、跑后还原(否则会动用户真实配置)。
-⚠️ 引擎带 `SAINPUT_SINGLE_NS` 跑,绝不接管用户正在用的实例。
+⚠️ 会改 `ouuutput.conf`:跑前备份、跑后还原(否则会动用户真实配置)。
+⚠️ 引擎带 `OUUUTPUT_SINGLE_NS` 跑,绝不接管用户正在用的实例。
 ⚠️ 引擎跑在**私有桌面**上,用户看不见。
 
 跑法:
-    cargo build --release --target-dir target-test -p sainput-cli
+    cargo build --release --target-dir target-test -p ouuutput-cli
     python tools/test_edge_params.py
 """
 import os
@@ -31,9 +31,9 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 DIRS = ["target-test/x86_64-pc-windows-gnu/release", "target-test/release",
         "target/x86_64-pc-windows-gnu/release", "target/release"]
 DESKTOP = "SAI-EdgeParams"
-NS = "sainput-edgetest"
+NS = "ouuutput-edgetest"
 WM_COMMAND = 0x0111
-TRAY_CLASS = "SainputTrayWnd"
+TRAY_CLASS = "OuuutputTrayWnd"
 # 与 tray.rs 里的基址一致(改了那边这里也要改)
 ID_EDGE_SPREAD_BASE = 340
 ID_EDGE_PEAK_BASE = 350
@@ -51,7 +51,7 @@ def find(rel, what):
 
 
 def conf_value(path, key):
-    """读 sainput.conf 里某个键的值(没有就 None)。"""
+    """读 ouuutput.conf 里某个键的值(没有就 None)。"""
     if not path.exists():
         return None
     txt = path.read_text(encoding="utf-8", errors="replace")
@@ -68,21 +68,21 @@ def find_tray(d, pid):
 
 
 def main():
-    sainput = find("sainput.exe", "engine")
-    conf = REPO / "sainput.conf"
+    ouuutput = find("ouuutput.exe", "engine")
+    conf = REPO / "ouuutput.conf"
     backup = None
     if conf.exists():
         backup = conf.with_suffix(".conf.bak-edge-test")
         shutil.copy2(conf, backup)
 
-    saved_env = {k: os.environ.get(k) for k in ("SAINPUT_SINGLE_NS",)}
+    saved_env = {k: os.environ.get(k) for k in ("OUUUTPUT_SINGLE_NS",)}
     fails = []
     d = hdesk.open_desktop(DESKTOP)
     ep = None
     epid = 0
     try:
-        os.environ["SAINPUT_SINGLE_NS"] = NS
-        ep, ept, epid = hdesk.launch(str(sainput), "run", DESKTOP)
+        os.environ["OUUUTPUT_SINGLE_NS"] = NS
+        ep, ept, epid = hdesk.launch(str(ouuutput), "run", DESKTOP)
         tray = None
         t0 = time.time()
         while time.time() - t0 < 40:

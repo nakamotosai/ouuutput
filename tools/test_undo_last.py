@@ -2,7 +2,7 @@
 """T5.2「收回上一句」回归(私有桌面,用户看不见)。
 
 判据是**一对**:
-  1) 打开收回(`SAINPUT_DIAG_UNDO_AFTER_MS`)→ 那一句话必须从靶子里**消失**(EDIT 为空);
+  1) 打开收回(`OUUUTPUT_DIAG_UNDO_AFTER_MS`)→ 那一句话必须从靶子里**消失**(EDIT 为空);
   2) 同样的流程、不收 → 那句话必须在(正好"你好世界")。
 第二条是必须的:没有它,第一条在"整条链路根本没上屏"时也会绿 —— 而那种绿毫无意义。
 
@@ -11,7 +11,7 @@
 直接调 `inject::backspace`(只会 SendInput)在这条路上一个都退不掉。
 
 跑法:
-    cargo build --release --target-dir target-test -p sainput-cli -p sainput-tsf-host
+    cargo build --release --target-dir target-test -p ouuutput-cli -p ouuutput-tsf-host
     python tools/test_undo_last.py
 """
 import os
@@ -27,9 +27,9 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 DIRS = ["target-t14b/x86_64-pc-windows-gnu/release", "target-test/x86_64-pc-windows-gnu/release",
         "target/x86_64-pc-windows-gnu/release", "target/release"]
 DESKTOP = "SAI-UndoLast"
-NS = "sainput-undotest"
-ENV = ("SAINPUT_SINGLE_NS", "SAINPUT_DIAG_AUTOSTART", "SAINPUT_DIAG_TARGET_HWND",
-       "FAKE_ASR_SCRIPT", "SAINPUT_DIAG_UNDO_AFTER_MS")
+NS = "ouuutput-undotest"
+ENV = ("OUUUTPUT_SINGLE_NS", "OUUUTPUT_DIAG_AUTOSTART", "OUUUTPUT_DIAG_TARGET_HWND",
+       "FAKE_ASR_SCRIPT", "OUUUTPUT_DIAG_UNDO_AFTER_MS")
 
 
 def find(rel, what):
@@ -52,14 +52,14 @@ def make_wav(path):
     return path
 
 
-def run_case(host, sainput, wav, undo_after_ms, expect):
+def run_case(host, ouuutput, wav, undo_after_ms, expect):
     h = hdesk.open_desktop(DESKTOP)
     saved = {k: os.environ.get(k) for k in ENV}
     hh = hp = None
     hpid = epid = 0
     try:
-        os.environ["SAINPUT_SINGLE_NS"] = NS
-        os.environ["SAINPUT_DIAG_AUTOSTART"] = "1200"
+        os.environ["OUUUTPUT_SINGLE_NS"] = NS
+        os.environ["OUUUTPUT_DIAG_AUTOSTART"] = "1200"
         os.environ["FAKE_ASR_SCRIPT"] = "w:400;p:你好世;p:你好世界;w:300;f:你好世界:finish;w:600"
         hh, ht, hpid = hdesk.launch(str(host), f"--life 26000 --log {REPO / 'tmp' / 'undo-host.log'}", DESKTOP)
         edit = None
@@ -71,17 +71,17 @@ def run_case(host, sainput, wav, undo_after_ms, expect):
             time.sleep(0.2)
         if not edit:
             return False, "宿主窗口没起来"
-        os.environ["SAINPUT_DIAG_TARGET_HWND"] = hex(edit)
+        os.environ["OUUUTPUT_DIAG_TARGET_HWND"] = hex(edit)
         if undo_after_ms:
-            os.environ["SAINPUT_DIAG_UNDO_AFTER_MS"] = str(undo_after_ms)
+            os.environ["OUUUTPUT_DIAG_UNDO_AFTER_MS"] = str(undo_after_ms)
         else:
-            os.environ.pop("SAINPUT_DIAG_UNDO_AFTER_MS", None)
+            os.environ.pop("OUUUTPUT_DIAG_UNDO_AFTER_MS", None)
         logdir = REPO / "tmp" / "engine-undo"
         logdir.mkdir(parents=True, exist_ok=True)
-        for f in logdir.glob("sainput-*.log"):
+        for f in logdir.glob("ouuutput-*.log"):
             f.unlink()
         hp, hpt, epid = hdesk.launch(
-            str(sainput),
+            str(ouuutput),
             "run --script " + str(REPO / "tools" / "fake_asr_sidecar.py")
             + f' --python "{sys.executable}"'
             + f" --feed {wav} --feed-restart"
@@ -90,7 +90,7 @@ def run_case(host, sainput, wav, undo_after_ms, expect):
             DESKTOP)
         time.sleep(7.0)
         got = hdesk.read_edit(edit)
-        logs = sorted(logdir.glob("sainput-*.log"))
+        logs = sorted(logdir.glob("ouuutput-*.log"))
         txt = logs[-1].read_text(encoding="utf-8", errors="replace") if logs else ""
         detail = f"text={got!r} expect={expect!r}"
         if undo_after_ms:
@@ -114,8 +114,8 @@ def run_case(host, sainput, wav, undo_after_ms, expect):
 
 
 def main():
-    host = find("sainput-tsf-host.exe", "host")
-    sainput = find("sainput.exe", "engine")
+    host = find("ouuutput-tsf-host.exe", "host")
+    ouuutput = find("ouuutput.exe", "engine")
     tmp = REPO / "tmp"
     tmp.mkdir(exist_ok=True)
     wav = make_wav(tmp / "undo-silence.wav")
@@ -124,7 +124,7 @@ def main():
         ("收回上一句:那句话必须消失(T5.2)", 1200, ""),
         ("对照:不收回时必须留着那句话", 0, "你好世界"),
     ):
-        ok, detail = run_case(host, sainput, wav, undo_ms, expect)
+        ok, detail = run_case(host, ouuutput, wav, undo_ms, expect)
         print(f"[{'PASS' if ok else 'FAIL'}] {name}: {detail}")
         if not ok:
             fails.append(name)

@@ -2,7 +2,7 @@
 setlocal EnableExtensions
 
 REM ===========================================================================
-REM  Run sainput in the foreground and pass arguments through.
+REM  Run ouuutput in the foreground and pass arguments through.
 REM
 REM    run.bat                 print CLI help
 REM    run.bat devices         list microphones
@@ -21,17 +21,17 @@ cd /d "%~dp0"
 set "PYTHONIOENCODING=utf-8"
 
 set "EXE="
-if exist "target\release\sainput.exe" set "EXE=target\release\sainput.exe"
-if not defined EXE if exist "target\x86_64-pc-windows-gnu\release\sainput.exe" set "EXE=target\x86_64-pc-windows-gnu\release\sainput.exe"
+if exist "target\release\ouuutput.exe" set "EXE=target\release\ouuutput.exe"
+if not defined EXE if exist "target\x86_64-pc-windows-gnu\release\ouuutput.exe" set "EXE=target\x86_64-pc-windows-gnu\release\ouuutput.exe"
 
 if not defined EXE (
     echo.
-    echo   [sainput] sainput.exe not found.
-    echo   [sainput] Looked in:
-    echo   [sainput]   target\release\sainput.exe
-    echo   [sainput]   target\x86_64-pc-windows-gnu\release\sainput.exe
+    echo   [ouuutput] ouuutput.exe not found.
+    echo   [ouuutput] Looked in:
+    echo   [ouuutput]   target\release\ouuutput.exe
+    echo   [ouuutput]   target\x86_64-pc-windows-gnu\release\ouuutput.exe
     echo.
-    echo   [sainput] Build it first:   build.bat
+    echo   [ouuutput] Build it first:   build.bat
     echo.
     pause
     exit /b 1

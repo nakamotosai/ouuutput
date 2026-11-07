@@ -3,19 +3,19 @@
 提交进应用,而不是把整句丢掉(2026-11-02 用户要求:不要完全丢弃的方案)。
 
 怎么验(全程不碰用户终端、不碰用户的 Pebrel):
-  * 引擎跑在**私有桌面**上,靶子是 `sainput-tsf-host.exe`(只为提供前台窗口/进程名);
-  * `--ime-wmchar pebrel:sainput-tsf-host.exe` 强制走 Pebrel 组合态;
+  * 引擎跑在**私有桌面**上,靶子是 `ouuutput-tsf-host.exe`(只为提供前台窗口/进程名);
+  * `--ime-wmchar pebrel:ouuutput-tsf-host.exe` 强制走 Pebrel 组合态;
   * `PEBREL_CONFIG_DIR` 指向 tmp 下的假数据目录,里面是一个**假 Pebrel 控制面**
     (TCP,一行一个 JSON):`runtime.snapshot` 给一个窗口/pane,`pane.compose` 记录收到的
     set/commit;
   * 假侧车只吐一条 partial、**不给定稿**(`FAKE_ASR_SCRIPT=p:…`)→ 引擎的收尾上限
-    (`SAINPUT_FINAL_WAIT_MS`)到点后应该自己把这一版提交掉。
+    (`OUUUTPUT_FINAL_WAIT_MS`)到点后应该自己把这一版提交掉。
 
 判据:假控制面收到一次 `commit=true` 且 text == 那条 partial;引擎日志里明确记了
 「上屏改用 Pebrel 组合态缓冲层」和「收尾硬上限」。
 
 跑法:
-    cargo build --release --target-dir target-test -p sainput-cli -p sainput-tsf-host
+    cargo build --release --target-dir target-test -p ouuutput-cli -p ouuutput-tsf-host
     python tools/test_compose_cap.py
 """
 import json
@@ -34,10 +34,10 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 DIRS = ["target-test/x86_64-pc-windows-gnu/release", "target-test/release",
         "target/x86_64-pc-windows-gnu/release", "target/release"]
 DESKTOP = "SAI-ComposeCap"
-NS = "sainput-captest"
+NS = "ouuutput-captest"
 TEXT = "说到一半的一句"
-ENV_KEYS = ("SAINPUT_SINGLE_NS", "SAINPUT_DIAG_AUTOSTART", "SAINPUT_DIAG_TARGET_HWND",
-            "FAKE_ASR_SCRIPT", "SAINPUT_FINAL_WAIT_MS", "PEBREL_CONFIG_DIR")
+ENV_KEYS = ("OUUUTPUT_SINGLE_NS", "OUUUTPUT_DIAG_AUTOSTART", "OUUUTPUT_DIAG_TARGET_HWND",
+            "FAKE_ASR_SCRIPT", "OUUUTPUT_FINAL_WAIT_MS", "PEBREL_CONFIG_DIR")
 
 
 def find(rel, what):
@@ -122,8 +122,8 @@ class FakePebrel(threading.Thread):
 
 
 def main():
-    host_exe = find("sainput-tsf-host.exe", "sainput-tsf-host.exe")
-    sainput = find("sainput.exe", "sainput.exe")
+    host_exe = find("ouuutput-tsf-host.exe", "ouuutput-tsf-host.exe")
+    ouuutput = find("ouuutput.exe", "ouuutput.exe")
     tmp = REPO / "tmp"
     tmp.mkdir(exist_ok=True)
     wav = make_wav(tmp / "race-silence.wav")
@@ -131,7 +131,7 @@ def main():
     data_dir.mkdir(exist_ok=True)
     log_dir = tmp / "engine-cap"
     log_dir.mkdir(exist_ok=True)
-    for f in log_dir.glob("sainput-*.log"):
+    for f in log_dir.glob("ouuutput-*.log"):
         f.unlink()
 
     saved = {k: os.environ.get(k) for k in ENV_KEYS}
@@ -158,19 +158,19 @@ def main():
         (data_dir / "runtime.port").write_text(
             f"{pebrel.port} {pebrel.token} 1\n", encoding="utf-8")
 
-        os.environ["SAINPUT_SINGLE_NS"] = NS
-        os.environ["SAINPUT_DIAG_AUTOSTART"] = "4000"
-        os.environ["SAINPUT_DIAG_TARGET_HWND"] = hex(edit)
+        os.environ["OUUUTPUT_SINGLE_NS"] = NS
+        os.environ["OUUUTPUT_DIAG_AUTOSTART"] = "4000"
+        os.environ["OUUUTPUT_DIAG_TARGET_HWND"] = hex(edit)
         os.environ["FAKE_ASR_SCRIPT"] = f"p:{TEXT}"
-        os.environ["SAINPUT_FINAL_WAIT_MS"] = "800"
+        os.environ["OUUUTPUT_FINAL_WAIT_MS"] = "800"
         os.environ["PEBREL_CONFIG_DIR"] = str(data_dir)
 
         ep, et, epid = hdesk.launch(
-            str(sainput),
+            str(ouuutput),
             "run --script " + str(REPO / "tools" / "fake_asr_sidecar.py")
             + f' --python "{sys.executable}"'
             + f" --feed {wav} --feed-restart"
-            + " --ime-wmchar pebrel:sainput-tsf-host.exe"
+            + " --ime-wmchar pebrel:ouuutput-tsf-host.exe"
             + " --no-leading-space --no-trailing-space --overlay-mode off"
             + f" --log-dir {log_dir}",
             DESKTOP)
@@ -181,7 +181,7 @@ def main():
         while time.time() < deadline and not pebrel.commits():
             time.sleep(0.1)
 
-        logs = sorted(log_dir.glob("sainput-*.log"))
+        logs = sorted(log_dir.glob("ouuutput-*.log"))
         log = logs[-1].read_text(encoding="utf-8", errors="replace") if logs else ""
         commits = pebrel.commits()
         ok_mode = "上屏改用 Pebrel 组合态缓冲层" in log

@@ -1,13 +1,13 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-  ime_repair.ps1 —— 只修 sainput **自己**的 TSF 薄壳留在用户级输入法设置里的残留。
+  ime_repair.ps1 —— 只修 ouuutput **自己**的 TSF 薄壳留在用户级输入法设置里的残留。
   用户的日常输入法与它无关,本脚本绝不碰。
 
 .DESCRIPTION
-  为什么会有残留:我们的 TSF 薄壳 sainput_tsf.dll 在做组合态实验时,
+  为什么会有残留:我们的 TSF 薄壳 ouuutput_tsf.dll 在做组合态实验时,
   `ActivateProfile(..., TF_IPPMF_FORPROCESS)` 会**连带把该语言的默认输入法改成自己**
-  (crates/sainput-tsf-host/src/profile.rs 有记录;PLAN-NEXT 的 R1 判决据此把 TSF 降级为
+  (crates/ouuutput-tsf-host/src/profile.rs 有记录;PLAN-NEXT 的 R1 判决据此把 TSF 降级为
   "可选模式、产品不主动激活")。残留只会落在两处**用户级(HKCU)**设置里:
     1) HKCU\Control Panel\International\User Profile\InputMethodOverride
        —— 默认输入法覆盖;Get-WinDefaultInputMethodOverride 读的就是它
@@ -15,13 +15,13 @@
   后果:中文语境下激活的是那个壳,注入的字母被当成本地输入法的输入吃掉、整句丢失。
 
   本项目认识的"我们"**只有一个**(仓库里的权威常量):
-    CLSID   {FCC45A5E-09C4-410A-B696-BDD2DA66A21F}   crates/sainput-tsf/src/lib.rs:92 (CLSID_SAINPUT_TSF)
-    profile {6A1F2B7C-3D4E-4F50-9A1B-2C3D4E5F6071}   crates/sainput-tsf-host/src/profile.rs:23 (PROFILE_GUID)
+    CLSID   {FCC45A5E-09C4-410A-B696-BDD2DA66A21F}   crates/ouuutput-tsf/src/lib.rs:92 (CLSID_OUUUTPUT_TSF)
+    profile {6A1F2B7C-3D4E-4F50-9A1B-2C3D4E5F6071}   crates/ouuutput-tsf-host/src/profile.rs:23 (PROFILE_GUID)
     (tools/tsf_register.ps1 里的默认值与此同源)
 
   [!] 身份闸 —— 这是这次事故的全部教训:
       -Fix / -Register 动手之前**必须先确认**目标 CLSID 的 InProcServer32 指向的是**我们的 DLL**
-      (路径里含 "sainput")。**对不上就硬拒绝、一个字都不改**,绝不"猜它是我们的"。
+      (路径里含 "ouuutput")。**对不上就硬拒绝、一个字都不改**,绝不"猜它是我们的"。
       反面教材:本机默认输入法其实是另一套**独立第三方输入法** Metasequoia 水杉输入法
       (CLSID {E3062E9A-D834-4637-8958-ED8CFA427D01},
        DLL C:\WINDOWS\system32\IME\MetasequoiaIME\msime_v0.11.1\MetasequoiaImeTsf.dll)。
@@ -67,14 +67,14 @@ param(
   [switch]$Fix,
   [switch]$Register,
 
-  # **我们自己的** TSF(仓库权威常量;改这里前先改 crates/sainput-tsf/src/lib.rs)。
+  # **我们自己的** TSF(仓库权威常量;改这里前先改 crates/ouuutput-tsf/src/lib.rs)。
   [string]$TipClsid     = '{FCC45A5E-09C4-410A-B696-BDD2DA66A21F}',
   [string]$TipProfile   = '{6A1F2B7C-3D4E-4F50-9A1B-2C3D4E5F6071}',
   [string]$LangId       = '0804',
   [string]$LangTag      = 'zh-Hans-CN',
 
   # 身份闸:目标 CLSID 的 InProcServer32 必须匹配这条正则,才算"是我们的"。
-  [string]$OwnDllPattern = 'sainput',
+  [string]$OwnDllPattern = 'ouuutput',
 
   # 允许把一个语言的 tip 删空(默认关)。
   [switch]$AllowEmptyLanguage,
@@ -234,9 +234,9 @@ function Show-Status {
   }
   Say ("    理由      : " + $gate.Reason)
 
-  Rule '4) 对照:仓库里写死的 sainput TSF 常量'
-  Say ("  CLSID   {FCC45A5E-09C4-410A-B696-BDD2DA66A21F}   (crates/sainput-tsf/src/lib.rs:92)")
-  Say ("  profile {6A1F2B7C-3D4E-4F50-9A1B-2C3D4E5F6071}   (crates/sainput-tsf-host/src/profile.rs:23)")
+  Rule '4) 对照:仓库里写死的 ouuutput TSF 常量'
+  Say ("  CLSID   {FCC45A5E-09C4-410A-B696-BDD2DA66A21F}   (crates/ouuutput-tsf/src/lib.rs:92)")
+  Say ("  profile {6A1F2B7C-3D4E-4F50-9A1B-2C3D4E5F6071}   (crates/ouuutput-tsf-host/src/profile.rs:23)")
   if ($TipClsid -ieq $KnownForeignClsid) {
     Say ("  [!] 你传入的 -TipClsid " + $TipClsid + ' 是**别的输入法**(本机是 Metasequoia 水杉输入法),')
     Say '      不是我们的 TSF —— 身份闸会拒绝 -Fix / -Register。'
@@ -275,7 +275,7 @@ function Assert-IdentityGate {
   Say ("  目标 CLSID     : " + $TipClsid)
   Say ("  InProcServer32 : " + $(if ($gate.Dll) { $gate.Dll } else { '<无>' }))
   Say ("  理由           : " + $gate.Reason)
-  Say '  本脚本只修 sainput **自己**的 TSF 残留;目标不是我们的 → 拒绝执行。'
+  Say '  本脚本只修 ouuutput **自己**的 TSF 残留;目标不是我们的 → 拒绝执行。'
   Say '  用户日常在用的输入法(本机是 Metasequoia 水杉输入法)与它无关,不在本脚本职责内。'
   Say '  要修别的输入法请另行处理;本脚本不做"猜它是我们的"这种事。'
   exit 5
@@ -520,7 +520,7 @@ if ($actions.Count -gt 1) {
 $action = if ($actions.Count -eq 1) { $actions[0] } else { 'Check' }
 
 Rule "ime_repair.ps1 -$action"
-Say '  定位:只修 sainput **自己**的 TSF 残留;用户的日常输入法与本脚本无关,绝不碰。'
+Say '  定位:只修 ouuutput **自己**的 TSF 残留;用户的日常输入法与本脚本无关,绝不碰。'
 Say '  只动: 默认输入法覆盖(InputMethodOverride)+ 用户语言列表里的那条 tip。只写 HKCU。'
 Say ("  我们的 tip: " + $Tip)
 if ($action -eq 'Check') {

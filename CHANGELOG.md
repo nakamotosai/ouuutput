@@ -26,9 +26,11 @@
   轮廓数据在 `crates/ouuutput-core/src/tray.rs` 的 `MARK` 常量里单一存放:
   Rust 自己栅格化,`tools/make_icon.py` 也直接从这一处解析生成 `.ico`,不再手抄第二份。
 
-### 未改
+### 后续(2026-11-08)
 
-- GitHub 仓库名 / Hugging Face 镜像 / 落地页域名 `input.saaaai.com` —— 待用户拍板后再动。
+- GitHub 仓库名与 Hugging Face 镜像已同轮改为 `ouuutput`。
+- 落地页域名改用 `put.ouuut.com`(Cloudflare Pages 项目 `put-site`,挂在主站第 08 张卡);
+  `input.saaaai.com` 改为 301 重定向到 `put.ouuut.com`。
 
 ## [0.2.6] - 2026-11-02
 

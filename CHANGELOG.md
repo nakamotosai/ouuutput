@@ -29,8 +29,8 @@
 ### 后续(2026-11-08)
 
 - GitHub 仓库名与 Hugging Face 镜像已同轮改为 `ouuutput`。
-- 落地页域名改用 `put.ouuut.com`(Cloudflare Pages 项目 `put-site`,挂在主站第 08 张卡);
-  `input.saaaai.com` 改为 301 重定向到 `put.ouuut.com`。
+- 落地页域名定为 `input.ouuut.com`(Cloudflare Pages 项目 `put-site`,挂在主站第 08 张卡);
+  当它曾短暂挂在 `put.ouuut.com`：`input.saaaai.com` 与 `put.ouuut.com` 都 301 重定向到 `input.ouuut.com`。
 
 ## [0.2.6] - 2026-11-02
 

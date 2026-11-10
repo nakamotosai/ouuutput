@@ -24,7 +24,7 @@
 |---|---|
 | 版本 | `0.3.2` |
 | 发布 | [GitHub Release v0.3.2](https://github.com/nakamotosai/ouuutput/releases/tag/v0.3.2) · `dist\ouuutput-0.3.2-win64.zip` |
-| 源码 | `F:\projects\ouuutput` · `main` = `?` · tag `v0.3.2` |
+| 源码 | `F:\projects\ouuutput` · `main` = `814bcae` · tag `v0.3.2` |
 | 接手 | [HANDOFF.md](HANDOFF.md) · [PLAN-NEXT.md](PLAN-NEXT.md) · [CHANGELOG.md](CHANGELOG.md) |
 
 本轮完成：① 修掉**小数点两边被插空格**（CT-Transformer 会给夹在 ASCII 字母数字之间的 `.`

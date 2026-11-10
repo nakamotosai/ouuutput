@@ -143,9 +143,58 @@ def punctuate_guarded(punct, t):
     return t, True
 
 
+# 标点模型每一拍都在**不完整的前缀**上重算,末尾那几个字的断句还没定型 ——
+# 实测(2026-11-10,用户语料 `logs/corpus`):前缀 `所以他那些奇怪的逗号的`
+# 会被加成一个 `、`(在「的」后面),下一帧再补一个字,那一笔就没了。
+# 开着「标点转空格」时,这一笔先变成一个**空格**上了屏又被撤销 —— 用户看到的就是
+# 「不该插入空格的时候又插进去了」;keep 模式下则是逗号一闪一闪。
+# 所以流式(partial)阶段只认**离句尾足够远**的那部分标点,末尾这几字里的新标点先按住,
+# 等后面的字补上来再判定。定稿(final)整句一次算准,不受影响。
+_UNSETTLED_TAIL_CHARS = 6
+# 只处理「标点模型会插的那几个字符」;正文(含 `%`、`+`、小数点等符号)一个字都不动。
+_TAIL_PUNCT = frozenset("，。！？、；：,.!?;:…")
+
+
+def drop_unsettled_tail_punctuation(punctuated, raw,
+                                    settle=_UNSETTLED_TAIL_CHARS):
+    """partial 阶段:丢掉落在**原文末尾 settle 字以内**的标点。
+
+    为什么是「按原文位置」而不是「按输出位置」:输出里的标点是模型插进来的,
+    只有对应回原文才知道它离句尾有多远。
+
+    安全边界(两条,都不能省):
+      1. **raw 里本来就有标点就整句不动** —— 那种情况标点是正文的一部分
+         (`cd ..` / `3.14` / 域名),按住它等于把用户说的话删掉。
+      2. 只删 `_TAIL_PUNCT` 里的字符;正文与空白原样保留。
+    """
+    if not punctuated:
+        return punctuated
+    if any(ch in _TAIL_PUNCT for ch in raw):
+        return punctuated
+    n = len("".join(raw.split()))
+    out = []
+    seen = 0                      # 已经数过的**正文**字数(= 对应到原文的位置)
+    for ch in punctuated:
+        if ch.isspace():
+            out.append(ch)
+            continue
+        if ch in _TAIL_PUNCT:
+            if seen > n - settle:
+                continue          # 落在还没定型的尾巴里:这一帧先不发
+            out.append(ch)
+            continue
+        seen += 1
+        out.append(ch)
+    return "".join(out)
+
+
 def render_text(t, punct=None, use_itn=True, punct_mode="keep",
-                merge_terms=True, fix_case=True):
-    """ITN -> 标点 -> 排版整形。render() 的纯函数版本(不碰 live 状态,好测)。"""
+                merge_terms=True, fix_case=True, final=False):
+    """ITN -> 标点 -> 排版整形。render() 的纯函数版本(不碰 live 状态,好测)。
+
+    `final=True` 表示这是**定稿**(整句已说完):标点整句一次算准,不做尾巴守卫。
+    流式(默认)会把末尾未定型的标点按住,见 `drop_unsettled_tail_punctuation`。
+    """
     if not t:
         return t
     # 顺序有讲究:先去重复循环,再做 ITN 和标点 ——
@@ -159,9 +208,12 @@ def render_text(t, punct=None, use_itn=True, punct_mode="keep",
     # 读号码本来也不是句子,断句信息没有任何价值。
     bare_number = t.isascii() and t.isdigit()
     if punct is not None and not bare_number:
+        before_punct = t          # 尾巴守卫要按「加标点之前」的原文位置判距离
         t, dropped = punctuate_guarded(punct, t)
         if dropped:
             note("[sidecar] 标点模型丢了正文,本句退回未加标点的文本")
+        elif not final:
+            t = drop_unsettled_tail_punctuation(t, before_punct)
     t = polish_mod.polish(t)
     # 排版整形放最后:标点已经落定,才轮到「标点转空格」和「英文拆字合并」。
     # 反过来做的话,标点模型会看到被抹掉标点的句子,断句会变差。
@@ -417,7 +469,8 @@ def main():
             return "", 0.0
         t0 = time.perf_counter()
         out = render_text(t, punct, use_itn,
-                          live["punct_mode"], live["merge_terms"], live["fix_case"])
+                          live["punct_mode"], live["merge_terms"], live["fix_case"],
+                          final=final)
         return out, (time.perf_counter() - t0) * 1000.0
 
     emit({

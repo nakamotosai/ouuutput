@@ -135,6 +135,45 @@ def main() -> int:
     print(("OK   " if ok else "FAIL "), f"stderr 写不出去也不能吞掉这一句: {got!r}")
     bad += 0 if ok else 1
 
+    # ---- 1.5) 流式尾巴守卫(纯函数,不需要模型)------------------------------
+    # 用户 2026-11-10 报的:模型在**不完整前缀**上插的那一笔,下一帧又没了。
+    # 开着「标点转空格」时它就是「空格凭空出现又消失」。守卫只按住**离句尾 6 字以内**的标点。
+    got = sc.drop_unsettled_tail_punctuation(
+        "所以他那些奇怪的、逗号的。", "所以他那些奇怪的逗号的")
+    ok = got == "所以他那些奇怪的逗号的"
+    print(("OK   " if ok else "FAIL "), f"未定型尾巴里的标点必须被按住:{got!r}")
+    bad += 0 if ok else 1
+
+    got = sc.drop_unsettled_tail_punctuation(
+        "我实际进去看了,做的问题太大了。", "我实际进去看了做的问题太大了")
+    ok = got == "我实际进去看了,做的问题太大了"
+    print(("OK   " if ok else "FAIL "), f"已定型的标点必须保留(只砍尾巴):{got!r}")
+    bad += 0 if ok else 1
+
+    # raw 自带标点(`cd ..` / `3.14` / 域名)时整句不动:那是正文,不是模型插的。
+    got = sc.drop_unsettled_tail_punctuation("我运行 cd ..,然后", "我运行 cd .. 然后")
+    ok = got == "我运行 cd ..,然后"
+    print(("OK   " if ok else "FAIL "), f"原文自带标点时一个字不许动:{got!r}")
+    bad += 0 if ok else 1
+
+    class TailPunct:
+        """假标点模型:固定返回带一个句中 `、` 的版本(正是尾巴守卫要拦的形状)。"""
+
+        def add_punctuation(self, t: str) -> str:
+            return "所以他那些奇怪的、逗号的。"
+
+    got = sc.render_text("所以他那些奇怪的逗号的", TailPunct(), True, "keep",
+                         True, True, True)               # final=True
+    ok = "、" in got
+    print(("OK   " if ok else "FAIL "), f"定稿(final)不做尾巴守卫:{got!r}")
+    bad += 0 if ok else 1
+
+    got = sc.render_text("所以他那些奇怪的逗号的", TailPunct(), True, "keep",
+                         True, True, False)              # final=False
+    ok = "、" not in got
+    print(("OK   " if ok else "FAIL "), f"流式(partial)要拦住那一笔:{got!r}")
+    bad += 0 if ok else 1
+
     # ---- 2) 真模型 + 真链路 -------------------------------------------------
     punct = load_punct()
     if punct is None:
@@ -146,7 +185,7 @@ def main() -> int:
         raw = punct.add_punctuation(text)
         raw_lost = len(sc.content_key(text)) - len(sc.content_key(raw))
         raw_losses += 1 if raw_lost > 0 else 0
-        got = sc.render_text(text, punct, True, "space", True, True)
+        got = sc.render_text(text, punct, True, "space", True, True, True)
         lost = len(sc.content_key(text)) - len(sc.content_key(got))
         ok = lost <= 0
         print(("OK   " if ok else "FAIL "),

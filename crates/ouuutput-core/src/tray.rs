@@ -95,6 +95,12 @@ pub const EDGE_FPS_CONF: [&str; 2] = ["60", "30"];
 const ID_RELEASE_KEYS: usize = 19;
 /// T5.2 收回上一句。是**动作**不是开关:不落配置,只发一次请求。
 const ID_UNDO_LAST: usize = 20;
+/// 「重启输入法」—— 重新拉起自己(读最新的 exe / 最新的 sidecar),旧实例由新实例接管退出。
+///
+/// 为什么必须在托盘里:用户不知道 `start.bat` / exe 在哪,也不该知道。"改完就得重启"
+/// 这件事只能落在**唯一看得见的入口**上,否则每次都要找人从命令行踢一脚。
+/// 它是**动作**不是开关:不落配置、不排队等主循环 —— 见 `queue_toggle` 里的说明。
+const ID_RESTART: usize = 21;
 /// 热键子菜单的基址：ID_HOTKEY_BASE + 序号。
 /// 用连续 id 而不是给每个键写死常量 —— 以后加热键只改候选表，不用动命令行常量。
 const ID_HOTKEY_BASE: usize = 100;
@@ -895,6 +901,9 @@ unsafe fn show_menu(hwnd: isize) {
     }
     AppendMenuW(menu, MF_SEPARATOR, 0, sep.as_ptr());
     AppendMenuW(menu, MF_STRING, ID_RELEASE_KEYS, wide("释放卡住的键（键盘失灵时用）").as_ptr());
+    // 「重启输入法」放在退出**上面**:两个都是"让程序动一下"的动作项,
+    // 但重启是可逆的、退出不是 —— 把可逆的放前面,误点代价小。
+    AppendMenuW(menu, MF_STRING, ID_RESTART, wide("重启输入法（读最新版）").as_ptr());
     AppendMenuW(menu, MF_STRING, ID_SHOW_CONSOLE, showcon.as_ptr());
     AppendMenuW(menu, MF_STRING, ID_EXIT, exit.as_ptr());
 
@@ -915,7 +924,44 @@ unsafe fn show_menu(hwnd: isize) {
 }
 
 /// 把菜单 id 翻成开关并排队（主循环取走）。
+///
+/// 特例:「重启输入法」是**当场执行**的动作,不排队。原因:
+///   1. 用户点了就是要"现在读最新版",等下一拍 tick 没有意义;
+///   2. 新实例的接管逻辑会给**本进程**发托盘退出命令(`request_exit_of`,
+///      PostMessage WM_COMMAND/ID_EXIT),而处理那条命令要求托盘线程的消息循环
+///      还在跑 —— 所以这里只 spawn 新进程、不碰自己的状态,让后续的
+///      WM_COMMAND(ID_EXIT) 走原来的收尾路径(主循环退出 → Sidecar Drop → 子进程不孤儿)。
+/// 新进程:拿 takeover 锁 → 请旧的正常退出 → 旧的退完再真正跑起来。
+/// 用户看到的等价于"把 start.bat 再双击一遍",但他不需要知道 exe 在哪。
 fn queue_toggle(id: usize) {
+    if id == ID_RESTART {
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            // 别给用户弹第二个黑窗口(和 spawn guard 时同一个理由)。
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            if let Ok(exe) = std::env::current_exe() {
+                // `run --hide-console` = start.bat 的那条命令。
+                // 不设 cwd:sidecar 的路径由 exe 位置往上找(find_root),与 cwd 无关。
+                if let Err(e) = std::process::Command::new(exe)
+                    .args(["run", "--hide-console"])
+                    .creation_flags(CREATE_NO_WINDOW)
+                    .spawn()
+                {
+                    // 起不来也不能静默:用户点了菜单什么都没发生是最糟的体验。
+                    // 托盘气泡是隐藏控制台后唯一的提示通道(和 sidecar 看门狗同一招)。
+                    let hwnd = HWND.get().copied().unwrap_or(0);
+                    if hwnd != 0 {
+                        unsafe {
+                            balloon_now(hwnd, "ouuutput", &format!("重启失败:{e}"));
+                        }
+                    }
+                }
+            }
+        }
+        // 不排队:主循环无事可做 —— 新实例的接管会把自己请下线。
+        return;
+    }
     // 热键候选是连续 id：ID_HOTKEY_BASE + 序号
     const SILENCE_CHOICES: [u32; 5] = [5, 10, 15, 30, 0];
     if id >= ID_SILENCE_BASE && id < ID_SILENCE_BASE + SILENCE_CHOICES.len() {

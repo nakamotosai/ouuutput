@@ -24,7 +24,7 @@
 |---|---|
 | 版本 | `0.3.1` |
 | 发布 | [GitHub Release v0.3.1](https://github.com/nakamotosai/ouuutput/releases/tag/v0.3.1) · `dist\ouuutput-0.3.1-win64.zip` |
-| 源码 | `F:\projects\ouuutput` · `main` = `a1ebc03` · tag `v0.3.1` |
+| 源码 | `F:\projects\ouuutput` · `main` = `6c28556` · tag `v0.3.1` |
 | 接手 | [HANDOFF.md](HANDOFF.md) · [PLAN-NEXT.md](PLAN-NEXT.md) · [CHANGELOG.md](CHANGELOG.md) |
 
 本轮完成：① 修掉流式阶段标点「先上屏、下一帧又撤销」（`tools/asr_sidecar.py`）；

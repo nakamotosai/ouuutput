@@ -188,6 +188,20 @@ def drop_unsettled_tail_punctuation(punctuated, raw,
     return "".join(out)
 
 
+def _is_bare_number(t):
+    """整句就是一个数 —— 纯数字、小数、可带百分号(`12345` / `99.99` / `37.5%`)。
+
+    为什么要认小数:它和纯数字是同一种东西(读价签 / 验证码 / 号码)。标点模型会给
+    它补一个句号,而整句没有 CJK 时 `polish` 还会把那个句号排成英文句点 ——
+    上屏就成了 `99.99.`,用户要「直接贴进数字框」,多一个句点同样贴不进去。
+    IP 那种多段点号(`192.168.1.1`)一并认下:同样是「一个数」,同样不该被加句号。
+    """
+    body = t[:-1] if t.endswith('%') else t
+    if not body or not body.isascii():
+        return False
+    return all(p.isdigit() for p in body.split('.'))
+
+
 def render_text(t, punct=None, use_itn=True, punct_mode="keep",
                 merge_terms=True, fix_case=True, final=False):
     """ITN -> 标点 -> 排版整形。render() 的纯函数版本(不碰 live 状态,好测)。
@@ -202,11 +216,12 @@ def render_text(t, punct=None, use_itn=True, punct_mode="keep",
     t = repair_mod.repair(t)
     if use_itn:
         t = itn_mod.normalize(t)
-    # 整句就是一个数字串(读验证码 / 号码):**不加标点**。
-    # 标点模型会给纯数字句补一个句号(而且纯数字没有 CJK,polish 还会把它排成英文句点),
-    # 上屏就成了「12345.」—— 用户要的是「读验证码直接贴」,多一个句点就贴不进去。
-    # 读号码本来也不是句子,断句信息没有任何价值。
-    bare_number = t.isascii() and t.isdigit()
+    # 整句就是一个数(读验证码 / 号码 / 价签):**不加标点**。
+    # 标点模型会给它补一个句号(而且整句没有 CJK 时 polish 会把它排成英文句点),
+    # 上屏就成了「12345.」—— 用户要的是「直接贴」,多一个句点就贴不进去。
+    # 读数字本来也不是句子,断句信息没有任何价值。
+    # 2026-11-10 扩到**小数与百分数**:`99.99` / `37.5%` 是同一回事,判据见 `_is_bare_number`。
+    bare_number = _is_bare_number(t)
     if punct is not None and not bare_number:
         before_punct = t          # 尾巴守卫要按「加标点之前」的原文位置判距离
         t, dropped = punctuate_guarded(punct, t)

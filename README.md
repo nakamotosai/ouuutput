@@ -1,6 +1,6 @@
 # ouuutput 输入法 —— 低延迟、全本地的语音输入法
 
-**Windows 10/11 x64** · **MIT License** · **Rust 主体 + Python ASR 子进程** · 版本 `0.3.1`
+**Windows 10/11 x64** · **MIT License** · **Rust 主体 + Python ASR 子进程** · 版本 `0.3.2`
 
 按住热键说话，松开上屏；文字在说话过程中逐字出现，自带标点、阿拉伯数字归一化和热词。
 识别与标点全部在本机完成，**运行期不联网**。
@@ -22,15 +22,16 @@
 
 | 项 | 值 |
 |---|---|
-| 版本 | `0.3.1` |
-| 发布 | [GitHub Release v0.3.1](https://github.com/nakamotosai/ouuutput/releases/tag/v0.3.1) · `dist\ouuutput-0.3.1-win64.zip` |
-| 源码 | `F:\projects\ouuutput` · `main` = `6c28556` · tag `v0.3.1` |
+| 版本 | `0.3.2` |
+| 发布 | [GitHub Release v0.3.2](https://github.com/nakamotosai/ouuutput/releases/tag/v0.3.2) · `dist\ouuutput-0.3.2-win64.zip` |
+| 源码 | `F:\projects\ouuutput` · `main` = `?` · tag `v0.3.2` |
 | 接手 | [HANDOFF.md](HANDOFF.md) · [PLAN-NEXT.md](PLAN-NEXT.md) · [CHANGELOG.md](CHANGELOG.md) |
 
-本轮完成：① 修掉流式阶段标点「先上屏、下一帧又撤销」（`tools/asr_sidecar.py`）；
-② 托盘右键新增「重启输入法（读最新版）」（`crates/ouuutput-core/src/tray.rs`）。
+本轮完成：① 修掉**小数点两边被插空格**（CT-Transformer 会给夹在 ASCII 字母数字之间的 `.`
+两边各插一个空格，`99.99` → `99 . 99`；修在 `tools/polish.py` + `tools/asr_sidecar.py`）；
+② 上一版修掉的流式标点「先上屏、下一帧又撤销」与托盘右键「重启输入法（读最新版）」保持。
 
-**唯一 next**：评估**定稿阶段**标点的模型上限。现役 `sherpa-onnx` 只发布一个中文标点模型，
+**唯一 next**：评估**定稿阶段**标点位置的模型上限。现役 `sherpa-onnx` 只发布一个中文标点模型，
 190 句真实语料抽查 189/190 合理，唯一失误是 `你去实际，看它的真实报错记录`
 （逗号把「实际」和「看」切开）—— 属模型断句精度，不是流式 bug，不能靠加规则修。
 

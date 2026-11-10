@@ -25,6 +25,13 @@ def polish(t):
     if not t:
         return t
     t = re.sub(r'(\d)\s+%', r'\1%', t)
+    # 「.」夹在 ASCII 字母数字之间(小数 / IP / 版本号 / 文件名):CT-Transformer 会在
+    # 两边**各插一个空格** —— `99.99` -> `99 . 99`、`192.168.1.1` -> `192 . 168 . 1 . 1`、
+    # `AGENTS.md` -> `AGENTS . M D`。这是用户 2026-11-10 报的「小数点两边都有空格」。
+    # 只收「两边都是 ASCII 字母数字」的那一种:英文句尾的 `. ` 右边是空格/汉字/结尾,不满足。
+    # **必须放在 FW2HW 之前** —— 那一步会把「。」换成「. 」,换完再收会把正常句读粘死
+    # (`hello world。this` -> `hello world.this`)。
+    t = re.sub(r'(?<=[A-Za-z0-9])[ \t]*\.[ \t]*(?=[A-Za-z0-9])', '.', t)
     t = re.sub(r'[ \t]+(?=[' + _PUNCT_CJK + r'])', '', t)
     t = re.sub(r'(?<=[' + _OPEN_CJK + r'])[ \t]+', '', t)
     t = re.sub(r'(?<=[' + _CJK + r'])[ \t]+(?=[' + _CJK + r'])', '', t)

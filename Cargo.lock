@@ -512,7 +512,7 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "ouuutput-cli"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "ouuutput-core",
@@ -521,7 +521,7 @@ dependencies = [
 
 [[package]]
 name = "ouuutput-core"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "base64",
@@ -532,11 +532,11 @@ dependencies = [
 
 [[package]]
 name = "ouuutput-tsf"
-version = "0.3.1"
+version = "0.3.2"
 
 [[package]]
 name = "ouuutput-tsf-host"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "ouuutput-tsf",

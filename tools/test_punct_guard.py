@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import glob
 import os
+import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -174,6 +175,49 @@ def main() -> int:
     print(("OK   " if ok else "FAIL "), f"流式(partial)要拦住那一笔:{got!r}")
     bad += 0 if ok else 1
 
+    # ---- 1.6) 小数点两边的空格(纯函数,不需要模型)--------------------------
+    # 用户 2026-11-10 报的:「九十九点九九」上屏是 `99 . 99`,小数点两边各一个空格。
+    # 根因**不在 ITN**(它给出的是干净的 `99.99`),而在 CT-Transformer —— 它会给
+    # **任何**夹在 ASCII 字母数字之间的 `.` 两边各插一个空格:
+    #   `99.99` -> `99 . 99`、`192.168.1.1` -> `192 . 168 . 1 . 1`、`AGENTS.md` -> `AGENTS . M D`
+    class SpaceyPunct:
+        """假标点模型:复刻 CT-Transformer 那件坏事 —— 在 ASCII 标点两边插空格。"""
+
+        def add_punctuation(self, t: str) -> str:
+            t = re.sub(r'(\S)\.(\S)', r'\1 . \2', t)
+            return re.sub(r'(\d) ?%', r'\1 %', t) + "。"
+
+    for src, want in [
+        ("价格是九十九点九九元", "99.99"),
+        ("IP 是 192.168.1.1", "192.168.1.1"),
+        ("算下来是三十七点五块钱", "37.5"),
+    ]:
+        got = sc.render_text(src, SpaceyPunct(), True, "keep", True, True, True)
+        ok = (" . " not in got) and (want in got)
+        print(("OK   " if ok else "FAIL "),
+              f"小数点两边不许有空格: {src!r} -> {got!r}(要含 {want!r})")
+        bad += 0 if ok else 1
+
+    # 反过来:英文句读那个 `. ` 不许被粘死 —— 它由 FW2HW 生成,必须晚于收空格那一步。
+    got = sc.polish_mod.polish("hello world。this is a test。")
+    ok = got == "hello world. this is a test."
+    print(("OK   " if ok else "FAIL "), f"英文句读必须保持「. 」不粘连: {got!r}")
+    bad += 0 if ok else 1
+
+    # 整句就是一个数(小数 / 百分数 / IP 同待遇):不加标点。
+    # 加了的话,整句没有 CJK 时 polish 会把句号排成 `.` -> `99.99.` 贴不进数字框。
+    for s, want in [("12345", True), ("99.99", True), ("37.5%", True),
+                    ("192.168.1.1", True), ("99.99元", False), ("1.", False),
+                    ("", False), ("9.9.9.9.9", True)]:
+        ok = sc._is_bare_number(s) is want
+        print(("OK   " if ok else "FAIL "), f"_is_bare_number({s!r}) == {want}")
+        bad += 0 if ok else 1
+
+    got = sc.render_text("九十九点九九", SpaceyPunct(), True, "keep", True, True, True)
+    ok = got == "99.99"
+    print(("OK   " if ok else "FAIL "), f"整句一个小数:不加句点、不加空格 -> {got!r}")
+    bad += 0 if ok else 1
+
     # ---- 2) 真模型 + 真链路 -------------------------------------------------
     punct = load_punct()
     if punct is None:
@@ -194,6 +238,18 @@ def main() -> int:
         if a.verbose or not ok:
             print("        out:", got)
         bad += 0 if ok else 1
+
+    # 真模型也要过小数点这一关:上面那些用桩模型复刻了它的毛病,这里用真货验一遍。
+    # 跑 keep 与 space 两种模式 —— 用户开的是 space(标点转空格),更要盯住这条。
+    for raw, want in [("比如我说九十九点九九", "99.99"),
+                      ("IP 是 192.168.1.1", "192.168.1.1"),
+                      ("算下来是三十七点五块钱", "37.5")]:
+        for mode in ("keep", "space"):
+            got = sc.render_text(raw, punct, True, mode, True, True, True)
+            ok = (" . " not in got) and (want in got)
+            print(("OK   " if ok else "FAIL "),
+                  f"真模型·{mode:5s} 小数点不插空格: {raw!r} -> {got!r}")
+            bad += 0 if ok else 1
 
     if raw_losses == 0:
         print("NOTE 这个标点模型目前没有再复现吃掉正文 —— 守卫仍是必须的,"

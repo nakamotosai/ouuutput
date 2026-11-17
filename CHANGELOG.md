@@ -5,6 +5,15 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### Added
+- **悬浮显示新增「流光光晕」（`overlay_mode = halo`）**：双层高斯漫射沿屏幕四边波浪式柔和流动（Ego 同款柔光），无硬边、贴边圆滑过渡、附 1.5dp 贴边高光线。
+  - 配色支持 5 档（`halo_tint`）：`blue`（电光蓝，默认）/ `cyan`（天青水色）/ `violet`（蓝紫极光）/ `siri`（Siri 绚烂）/ `rainbow`（流光彩虹），托盘「悬浮显示 → 流光光晕配色」可实时切换并写回 `ouuutput.conf`。
+  - 形态参数按 `GLOW_CONFIG` 默认值提供，并支持配置项 / 命令行覆写：`halo_blur`（52）/ `halo_speed`（0.50）/ `halo_peak`（33）/ `halo_valley`（12）/ `halo_dynamics`（0.80）/ `halo_opacity`（0.80）/ `halo_rim`（0.20）。
+  - 渲染直写整屏 32bpp premultiplied BGRA DIB，零 per-frame D2D/GDI 对象分配，并采用 5dp 粗网格双层高斯 + 10-bit SWAR 双线性上采样；仅覆盖 `content_rects(Mode::Halo)` 四条贴边脏带，屏中区域保持全透明不重绘。
+  - 回归与演示：`ouuutput overlay-demo --mode halo --tint siri` 支持预览；新增 `tools/test_halo_mode.py` 验证配置输出及托盘切换持久化。
+
 ## [0.3.2] - 2026-11-10
 
 ### Fixed

@@ -18,7 +18,7 @@ use anyhow::{Context, Result};
 use ouuutput_core::asr::{Msg, Sidecar};
 use ouuutput_core::corpus::Corpus;
 use ouuutput_core::config::{self, Settings};
-use ouuutput_core::overlay::{EdgeTint, Overlay};
+use ouuutput_core::overlay::{EdgeTint, GlowConfig, HaloTint, Overlay, GLOW_CONFIG};
 use ouuutput_core::tray::Tray;
 use ouuutput_core::{
     audio, autostart, caretctx, context, hotkey, inject, metrics, pebrel, single, tray, wav,
@@ -59,7 +59,7 @@ fn usage() {
          ouuutput replay <in.wav> [--dry-run]      把 WAV 走完整流水线（离线验收）\n  \
          ouuutput render \"一段文字\"                只跑 ITN + 标点 + 润色\n  \
          ouuutput config                           打印当前生效的配置\n  \
-         ouuutput overlay-demo [--mode bar|orb|edge] [--seconds N]  预览悬浮显示\n  \
+         ouuutput overlay-demo [--mode bar|orb|edge|halo] [--seconds N]  预览悬浮显示\n  \
          ouuutput run [options]                    常驻：按住热键说话，松开上屏\n  \
          ouuutput release-keys                     释放卡住的修饰键（键盘失灵时用）\n  \
          ouuutput selftest inject <text>           只测上屏路径\n\n\
@@ -78,7 +78,7 @@ fn usage() {
          --hold                 按住说话（默认）\n  \
          --device <NAME>        指定麦克风（默认系统默认设备）\n  \
          --no-stream            不逐字上屏：流式阶段一个字都不打，松手定稿时整句一次性打字\n  \
-         --overlay-mode <M>     悬浮显示：off / bar（细条）/ orb（悬浮球）/ edge（屏幕边缘光）\n  \
+         --overlay-mode <M>     悬浮显示：off / bar（细条）/ orb（悬浮球）/ edge（屏幕边缘光）/ halo（流光光晕）\n  \
          --no-tray              关掉系统托盘图标\n  \
          --show-console         不自动收起控制台窗口\n  \
          --lazy-mic             按需开麦（默认常驻预热，避免吞掉开头）\n  \
@@ -105,7 +105,7 @@ fn usage() {
          CONFIG:\n  \
          仓库根下的 {CONF_NAME} 可写日常偏好(key = value),命令行参数优先级更高。\n  \
          可用键:hotkey / model_dir / punct_dir / hotwords / punct / itn / beam / toggle / tray /\n  hide_console / \
-         overlay_mode / stream / lazy_mic / max_backspace / throttle_ms / threads / device /\n         \
+         overlay_mode / halo_tint / stream / lazy_mic / max_backspace / throttle_ms / threads / device /\n         \
          tail_ms / tail_max_ms / tail_quiet_ms / tail_pad_ms / tail_rms /\n         \
          punct_mode / merge_terms / fix_case / ctx_bias / ime_wmchar /\n         \
          twopass / twopass_model_dir / focus_guard",
@@ -807,6 +807,41 @@ fn edge_demo() {
     }
 }
 
+/// 调完流光光晕参数或配色后立刻亮 1.8 秒演示一下再淡出。
+fn halo_demo() {
+    use std::sync::atomic::Ordering as O;
+    if overlay_mode() != 4 {
+        OVERLAY_MODE.store(4, O::Relaxed);
+        if ov_get().is_none() {
+            ov_put(Overlay::ensure());
+        }
+    }
+    if let Some(o) = ov_get() {
+        o.show_halo();
+        let ov2 = o.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(1800));
+            ov2.fade_halo();
+        });
+    }
+}
+
+fn halo_cfg_of(a: &Args) -> Result<GlowConfig> {
+    Ok(GlowConfig {
+        blur_radius: a.f("halo_blur", "--halo-blur", GLOW_CONFIG.blur_radius as f64)? as f32,
+        flow_speed: a.f("halo_speed", "--halo-speed", GLOW_CONFIG.flow_speed as f64)? as f32,
+        peak_thickness: a.f("halo_peak", "--halo-peak", GLOW_CONFIG.peak_thickness as f64)? as f32,
+        valley_thickness: a.f("halo_valley", "--halo-valley", GLOW_CONFIG.valley_thickness as f64)? as f32,
+        dynamics: a.f("halo_dynamics", "--halo-dynamics", GLOW_CONFIG.dynamics as f64)? as f32,
+        opacity: a.f("halo_opacity", "--halo-opacity", GLOW_CONFIG.opacity as f64)? as f32,
+        rim_opacity: a.f("halo_rim", "--halo-rim", GLOW_CONFIG.rim_opacity as f64)? as f32,
+    })
+}
+
+fn halo_tint_code_of() -> usize {
+    ouuutput_core::overlay::halo_tint_code(ouuutput_core::overlay::halo_tint()) as usize
+}
+
 /// 当前边缘光三档参数最接近哪一档(托盘菜单打勾用)。
 ///
 /// 用"最接近"而不是"记住上次点了哪档":配置里可能写的是任意数值(比如 `edge_spread = 63`),
@@ -887,20 +922,23 @@ fn ov_record_start(_o: &Option<Overlay>) {
         match overlay_mode() {
             2 => ov.show_orb(),
             3 => ov.show_edge(),
+            4 => ov.show_halo(),
             // 细条模式：录音时先清空（还没有文字）
             _ => ov.show_bar(""),
         }
     }
 }
 
-/// 录音结束（松手）：边缘光淡出，球/细条保持到出文字。
+/// 录音结束（松手）：边缘光/流光光晕淡出，球/细条保持到出文字。
 fn ov_record_end(_o: &Option<Overlay>) {
     if !overlay_enabled() {
         return;
     }
-    if overlay_mode() == 3 {
-        if let Some(ov) = ov_get() {
-            ov.fade_edge();
+    if let Some(ov) = ov_get() {
+        match overlay_mode() {
+            3 => ov.fade_edge(),
+            4 => ov.fade_halo(),
+            _ => {}
         }
     }
 }
@@ -1343,6 +1381,14 @@ fn cmd_config(a: &Args, root: &Path) -> Result<()> {
             fps = if a.u("edge_fps", "--edge-fps", 60)? <= 45 { 30 } else { 60 },
         );
     }
+    {
+        let h_tint = HaloTint::from_conf(&a.s("halo_tint", "--halo-tint").unwrap_or_else(|| "blue".into()));
+        let hc = halo_cfg_of(a)?;
+        println!(
+            "流光光晕  : 配色 {} / 模糊 {:.0}px / 流速 {:.2}× / 波峰 {:.0}px / 波谷 {:.0}px / 起伏 {:.2} / 亮度 {:.2} / 外线 {:.2}",
+            h_tint.label(), hc.blur_radius, hc.flow_speed, hc.peak_thickness, hc.valley_thickness, hc.dynamics, hc.opacity, hc.rim_opacity
+        );
+    }
     println!("上下文偏置: {}", if c.ctx_bias { "开" } else { "关" });
     println!("渲染节拍  : {}ms", c.throttle_ms);
     {
@@ -1376,6 +1422,7 @@ fn cmd_config(a: &Args, root: &Path) -> Result<()> {
         Some("bar") => 1,
         Some("orb") => 2,
         Some("edge") => 3,
+        Some("halo") => 4,
         Some("off") => 0,
         _ => {
             if a.b("overlay", "--overlay", "--no-overlay", false) { 1 } else { 3 }
@@ -1387,6 +1434,7 @@ fn cmd_config(a: &Args, root: &Path) -> Result<()> {
             1 => "细条（只显示文字，半透明）",
             2 => "悬浮球（录音波形）",
             3 => "屏幕边缘光",
+            4 => "流光光晕（柔波环绕）",
             _ => "关",
         }
     );
@@ -2979,6 +3027,7 @@ fn cmd_run(_args: &[String], a: &Args) -> Result<()> {
         Some("bar") => 1,
         Some("orb") => 2,
         Some("edge") => 3,
+        Some("halo") => 4,
         Some("off") => 0,
         _ => {
             // 默认就是**屏幕边缘光**（用户选定的方案：不占中央、最不干扰）。
@@ -3019,6 +3068,9 @@ fn cmd_run(_args: &[String], a: &Args) -> Result<()> {
         ouuutput_core::overlay::set_edge_peak(a.f("edge_peak", "--edge-peak", 0.42)? as f32);
         ouuutput_core::overlay::set_edge_speed(a.f("edge_speed", "--edge-speed", 1.0)? as f32);
         ouuutput_core::overlay::set_edge_fps(a.u("edge_fps", "--edge-fps", 60)? as u32);
+        let h_tint = HaloTint::from_conf(&a.s("halo_tint", "--halo-tint").unwrap_or_else(|| "blue".into()));
+        ouuutput_core::overlay::set_halo_tint(h_tint);
+        ouuutput_core::overlay::set_halo_config(halo_cfg_of(a)?);
         tray::set_flags(tray::TrayFlags {
             punct_to_space: c.punct_mode == "space",
             merge_terms: c.merge_terms,
@@ -3030,6 +3082,7 @@ fn cmd_run(_args: &[String], a: &Args) -> Result<()> {
             silence_sec: c.rule2.round() as u32,
             overlay_mode: overlay_mode_init as usize,
             edge_tint: tint_code_of(),
+            halo_tint: halo_tint_code_of(),
                 edge_spread_idx: edge_param_idxs().0,
                 edge_peak_idx: edge_param_idxs().1,
                 edge_speed_idx: edge_param_idxs().2,
@@ -3339,6 +3392,7 @@ fn cmd_run(_args: &[String], a: &Args) -> Result<()> {
                     silence_sec: sec,
                     overlay_mode: overlay_mode() as usize,
                     edge_tint: tint_code_of(),
+                    halo_tint: halo_tint_code_of(),
                 edge_spread_idx: edge_param_idxs().0,
                 edge_peak_idx: edge_param_idxs().1,
                 edge_speed_idx: edge_param_idxs().2,
@@ -3385,6 +3439,8 @@ fn cmd_run(_args: &[String], a: &Args) -> Result<()> {
                                 std::thread::sleep(Duration::from_millis(2000));
                                 ov2.fade_edge();
                             });
+                        } else if m == 4 {
+                            halo_demo();
                         } else {
                             o.show_bar("悬浮条已开 · 说话时显示文字");
                             o.hide_after(2500);
@@ -3399,10 +3455,11 @@ fn cmd_run(_args: &[String], a: &Args) -> Result<()> {
                     1 => "悬浮显示:细条".to_string(),
                     2 => "悬浮显示:悬浮球".to_string(),
                     3 => "悬浮显示:屏幕边缘光".to_string(),
+                    4 => "悬浮显示:流光光晕".to_string(),
                     _ => "悬浮显示:不显示".to_string(),
                 };
                 ("overlay_mode",
-                 match m { 1 => "bar", 2 => "orb", 3 => "edge", _ => "off" },
+                 match m { 1 => "bar", 2 => "orb", 3 => "edge", 4 => "halo", _ => "off" },
                  human)
             }
             tray::TrayToggle::LeadingSpace => {
@@ -3472,6 +3529,7 @@ fn cmd_run(_args: &[String], a: &Args) -> Result<()> {
                     silence_sec: SILENCE_SEC.load(O::Relaxed),
                     overlay_mode: overlay_mode() as usize,
                     edge_tint: tint_code_of(),
+                    halo_tint: halo_tint_code_of(),
                 edge_spread_idx: edge_param_idxs().0,
                 edge_peak_idx: edge_param_idxs().1,
                 edge_speed_idx: edge_param_idxs().2,
@@ -3514,6 +3572,14 @@ fn cmd_run(_args: &[String], a: &Args) -> Result<()> {
                 ("edge_tint", t.as_conf(),
                  format!("边缘光颜色:{}", t.label()))
             }
+            tray::TrayToggle::SetHaloTint(i) => {
+                let tints = [HaloTint::Blue, HaloTint::Cyan, HaloTint::Violet, HaloTint::Siri, HaloTint::Rainbow];
+                let Some(t) = tints.get(i).copied() else { return; };
+                ouuutput_core::overlay::set_halo_tint(t);
+                halo_demo();
+                println!("[ouuutput] 流光光晕配色 → {}", t.label());
+                ("halo_tint", t.as_conf(), format!("流光光晕配色:{}", t.label()))
+            }
             tray::TrayToggle::SetEdgeSpread(i) => {
                 let Some(px) = tray::EDGE_SPREAD_CHOICES.get(i).copied() else {
                     return;
@@ -3528,7 +3594,11 @@ fn cmd_run(_args: &[String], a: &Args) -> Result<()> {
                     return;
                 };
                 ouuutput_core::overlay::set_edge_fps(v);
-                edge_demo();
+                if overlay_mode() == 4 {
+                    halo_demo();
+                } else {
+                    edge_demo();
+                }
                 println!("[ouuutput] 边缘光帧率 → {v}fps");
                 ("edge_fps", tray::EDGE_FPS_CONF[i], format!("边缘光帧率:{v}fps"))
             }
@@ -3604,6 +3674,7 @@ fn cmd_run(_args: &[String], a: &Args) -> Result<()> {
             silence_sec: SILENCE_SEC.load(O::Relaxed),
             overlay_mode: overlay_mode() as usize,
                     edge_tint: tint_code_of(),
+            halo_tint: halo_tint_code_of(),
                 edge_spread_idx: edge_param_idxs().0,
                 edge_peak_idx: edge_param_idxs().1,
                 edge_speed_idx: edge_param_idxs().2,
@@ -3672,6 +3743,14 @@ fn cmd_overlay_demo(a: &Args) -> Result<()> {
                 println!("[ouuutput] overlay-demo: 屏幕边缘光 ×{cycles} 轮(尺寸恒定)");
             }
         }
+        "halo" => {
+            let tint = HaloTint::from_conf(
+                &a.s("tint", "--tint").or_else(|| a.s("halo_tint", "--halo-tint")).unwrap_or_else(|| "blue".into()),
+            );
+            ouuutput_core::overlay::set_halo_tint(tint);
+            ouuutput_core::overlay::set_halo_config(halo_cfg_of(a)?);
+            println!("[ouuutput] overlay-demo: 流光光晕 · {} ({secs}s)×{cycles} 轮", tint.label());
+        }
         "sentence" => println!(
             "[ouuutput] overlay-demo: 边缘光→细条 ×{cycles} 轮(一次听写的完整生命周期)"
         ),
@@ -3687,6 +3766,14 @@ fn cmd_overlay_demo(a: &Args) -> Result<()> {
                 ov.show_edge();
                 std::thread::sleep(Duration::from_millis(2500));
                 ov.fade_edge();
+                std::thread::sleep(Duration::from_millis(1200));
+                ov.hide();
+            }
+            "halo" => {
+                let hold_ms = (secs * 1000).saturating_sub(800).max(1500);
+                ov.show_halo();
+                std::thread::sleep(Duration::from_millis(hold_ms));
+                ov.fade_halo();
                 std::thread::sleep(Duration::from_millis(1200));
                 ov.hide();
             }

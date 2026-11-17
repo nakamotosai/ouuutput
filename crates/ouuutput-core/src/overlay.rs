@@ -480,6 +480,112 @@ pub fn label(self) -> &'static str {
     }
 }
 }
+/// 流光光晕（Ego 同款柔和漫射光晕）的配色方案。
+///
+/// 默认「电光蓝」对齐 Ego Lite 经典蓝色流光；另提供四套常用氛围配色。
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub enum HaloTint {
+    /// 电光蓝（默认）：#007aff / #38bdf8 / #1e40af
+    #[default]
+    Blue,
+    /// 天青水色：#0284c7 / #22d3ee / #0369a1
+    Cyan,
+    /// 蓝紫极光：#3b82f6 / #c084fc / #1d4ed8
+    Violet,
+    /// Siri 绚烂：#38bdf8 / #f472b6 / #6366f1
+    Siri,
+    /// 流光彩虹：全色相缓慢流转
+    Rainbow,
+}
+
+impl HaloTint {
+    pub fn from_conf(s: &str) -> HaloTint {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "cyan" => HaloTint::Cyan,
+            "violet" | "aurora" => HaloTint::Violet,
+            "siri" => HaloTint::Siri,
+            "rainbow" => HaloTint::Rainbow,
+            _ => HaloTint::Blue,
+        }
+    }
+    pub fn as_conf(self) -> &'static str {
+        match self {
+            HaloTint::Blue => "blue",
+            HaloTint::Cyan => "cyan",
+            HaloTint::Violet => "violet",
+            HaloTint::Siri => "siri",
+            HaloTint::Rainbow => "rainbow",
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            HaloTint::Blue => "电光蓝（默认）",
+            HaloTint::Cyan => "天青水色",
+            HaloTint::Violet => "蓝紫极光",
+            HaloTint::Siri => "Siri 绚烂",
+            HaloTint::Rainbow => "流光彩虹",
+        }
+    }
+    pub fn palette(self) -> ((f32, f32, f32), (f32, f32, f32), (f32, f32, f32)) {
+        // (primary, highlight, deep)
+        match self {
+            HaloTint::Blue => (
+                (0.0 / 255.0, 122.0 / 255.0, 255.0 / 255.0),
+                (56.0 / 255.0, 189.0 / 255.0, 248.0 / 255.0),
+                (30.0 / 255.0, 64.0 / 255.0, 175.0 / 255.0),
+            ),
+            HaloTint::Cyan => (
+                (2.0 / 255.0, 132.0 / 255.0, 199.0 / 255.0),
+                (34.0 / 255.0, 211.0 / 255.0, 238.0 / 255.0),
+                (3.0 / 255.0, 105.0 / 255.0, 161.0 / 255.0),
+            ),
+            HaloTint::Violet => (
+                (59.0 / 255.0, 130.0 / 255.0, 246.0 / 255.0),
+                (192.0 / 255.0, 132.0 / 255.0, 252.0 / 255.0),
+                (29.0 / 255.0, 78.0 / 255.0, 216.0 / 255.0),
+            ),
+            HaloTint::Siri => (
+                (56.0 / 255.0, 189.0 / 255.0, 248.0 / 255.0),
+                (244.0 / 255.0, 114.0 / 255.0, 182.0 / 255.0),
+                (99.0 / 255.0, 102.0 / 255.0, 241.0 / 255.0),
+            ),
+            HaloTint::Rainbow => (
+                (0.0 / 255.0, 168.0 / 255.0, 255.0 / 255.0),
+                (120.0 / 255.0, 224.0 / 255.0, 255.0 / 255.0),
+                (168.0 / 255.0, 85.0 / 255.0, 247.0 / 255.0),
+            ),
+        }
+    }
+}
+
+/// 流光光晕形态参数（用户实调定稿的默认值）。
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GlowConfig {
+    pub blur_radius: f32,
+    pub flow_speed: f32,
+    pub peak_thickness: f32,
+    pub valley_thickness: f32,
+    pub dynamics: f32,
+    pub opacity: f32,
+    pub rim_opacity: f32,
+}
+
+pub const GLOW_CONFIG: GlowConfig = GlowConfig {
+    blur_radius: 52.0,
+    flow_speed: 0.5,
+    peak_thickness: 33.0,
+    valley_thickness: 12.0,
+    dynamics: 0.80,
+    opacity: 0.80,
+    rim_opacity: 0.20,
+};
+
+pub const HALO_BLUR_MIN: f32 = 16.0;
+pub const HALO_BLUR_MAX: f32 = 96.0;
+pub const HALO_SPEED_MIN: f32 = 0.1;
+pub const HALO_SPEED_MAX: f32 = 3.0;
+pub const HALO_THICKNESS_MIN: f32 = 4.0;
+pub const HALO_THICKNESS_MAX: f32 = 90.0;
 
 /// 悬浮条 / 悬浮球二选一。
 ///
@@ -494,6 +600,8 @@ pub enum Mode {
     /// 屏幕边缘光：四边渐亮，录音时呼吸、松手后淡出。
     /// 完全无遮挡 —— 不占任何中央区域。
     Edge,
+    /// 流光光晕：双层高斯漫射沿屏幕四边波浪式柔和流动（无硬边）。
+    Halo,
 }
 
 #[derive(Clone, Default)]
@@ -547,6 +655,80 @@ pub fn edge_tint() -> EdgeTint {
         3 => EdgeTint::Cyan,
         4 => EdgeTint::Aurora,
         _ => EdgeTint::White,
+    }
+}
+static HALO_TINT: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+static HALO_BLUR_MILLI: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new((GLOW_CONFIG.blur_radius * 1000.0) as u32);
+static HALO_SPEED_MILLI: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new((GLOW_CONFIG.flow_speed * 1000.0) as u32);
+static HALO_PEAK_MILLI: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new((GLOW_CONFIG.peak_thickness * 1000.0) as u32);
+static HALO_VALLEY_MILLI: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new((GLOW_CONFIG.valley_thickness * 1000.0) as u32);
+static HALO_DYNAMICS_MILLI: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new((GLOW_CONFIG.dynamics * 1000.0) as u32);
+static HALO_OPACITY_MILLI: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new((GLOW_CONFIG.opacity * 1000.0) as u32);
+static HALO_RIM_MILLI: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new((GLOW_CONFIG.rim_opacity * 1000.0) as u32);
+
+pub fn halo_tint_code(t: HaloTint) -> u8 {
+    match t {
+        HaloTint::Blue => 0,
+        HaloTint::Cyan => 1,
+        HaloTint::Violet => 2,
+        HaloTint::Siri => 3,
+        HaloTint::Rainbow => 4,
+    }
+}
+
+pub fn set_halo_tint(t: HaloTint) {
+    HALO_TINT.store(halo_tint_code(t), Ordering::Relaxed);
+}
+
+pub fn halo_tint() -> HaloTint {
+    match HALO_TINT.load(Ordering::Relaxed) {
+        1 => HaloTint::Cyan,
+        2 => HaloTint::Violet,
+        3 => HaloTint::Siri,
+        4 => HaloTint::Rainbow,
+        _ => HaloTint::Blue,
+    }
+}
+
+pub fn set_halo_config(c: GlowConfig) {
+    let blur = c.blur_radius.clamp(HALO_BLUR_MIN, HALO_BLUR_MAX);
+    let speed = c.flow_speed.clamp(HALO_SPEED_MIN, HALO_SPEED_MAX);
+    let valley = c.valley_thickness.clamp(HALO_THICKNESS_MIN, HALO_THICKNESS_MAX);
+    let peak = c.peak_thickness.clamp(valley, HALO_THICKNESS_MAX);
+    let dynamics = c.dynamics.clamp(0.0, 1.0);
+    let opacity = c.opacity.clamp(0.05, 1.0);
+    let rim = c.rim_opacity.clamp(0.0, 1.0);
+    HALO_BLUR_MILLI.store((blur * 1000.0).round() as u32, Ordering::Relaxed);
+    HALO_SPEED_MILLI.store((speed * 1000.0).round() as u32, Ordering::Relaxed);
+    HALO_PEAK_MILLI.store((peak * 1000.0).round() as u32, Ordering::Relaxed);
+    HALO_VALLEY_MILLI.store((valley * 1000.0).round() as u32, Ordering::Relaxed);
+    HALO_DYNAMICS_MILLI.store((dynamics * 1000.0).round() as u32, Ordering::Relaxed);
+    HALO_OPACITY_MILLI.store((opacity * 1000.0).round() as u32, Ordering::Relaxed);
+    HALO_RIM_MILLI.store((rim * 1000.0).round() as u32, Ordering::Relaxed);
+}
+
+pub fn halo_config() -> GlowConfig {
+    let valley = (HALO_VALLEY_MILLI.load(Ordering::Relaxed) as f32 / 1000.0)
+        .clamp(HALO_THICKNESS_MIN, HALO_THICKNESS_MAX);
+    let peak = (HALO_PEAK_MILLI.load(Ordering::Relaxed) as f32 / 1000.0)
+        .clamp(valley, HALO_THICKNESS_MAX);
+    GlowConfig {
+        blur_radius: (HALO_BLUR_MILLI.load(Ordering::Relaxed) as f32 / 1000.0)
+            .clamp(HALO_BLUR_MIN, HALO_BLUR_MAX),
+        flow_speed: (HALO_SPEED_MILLI.load(Ordering::Relaxed) as f32 / 1000.0)
+            .clamp(HALO_SPEED_MIN, HALO_SPEED_MAX),
+        peak_thickness: peak,
+        valley_thickness: valley,
+        dynamics: (HALO_DYNAMICS_MILLI.load(Ordering::Relaxed) as f32 / 1000.0).clamp(0.0, 1.0),
+        opacity: (HALO_OPACITY_MILLI.load(Ordering::Relaxed) as f32 / 1000.0).clamp(0.05, 1.0),
+        rim_opacity: (HALO_RIM_MILLI.load(Ordering::Relaxed) as f32 / 1000.0).clamp(0.0, 1.0),
     }
 }
 static LAST_SEQ: OnceLock<Mutex<u64>> = OnceLock::new();
@@ -710,6 +892,30 @@ impl Overlay {
             s.edge_target = 0.0;
             s.seq += 1;
         }
+    }
+
+    /// 切到「流光光晕」模式并开始亮起（录音开始）。
+    pub fn show_halo(&self) {
+        if !self.enabled {
+            return;
+        }
+        if let Ok(mut s) = state().lock() {
+            if s.mode != Mode::Halo {
+                s.edge_level = 0.0;
+            }
+            s.visible = true;
+            s.mode = Mode::Halo;
+            s.status.clear();
+            s.text.clear();
+            s.at = None;
+            s.edge_target = 1.0;
+            s.seq += 1;
+        }
+    }
+
+    /// 让流光光晕淡出（松手后调用）。
+    pub fn fade_halo(&self) {
+        self.fade_edge();
     }
 
     /// 推一帧音量（0..1）给悬浮球画波形。
@@ -915,7 +1121,8 @@ unsafe fn sync(hwnd: isize) {
     // 这段必须在 visible 判断之前 —— 淡出过程中 visible 仍是 true,
     // 但亮度降到 0 之后要能自己收起来。
     let mut edge_done = false;
-    if mode == Mode::Edge {
+    let is_fullscreen_anim = matches!(mode, Mode::Edge | Mode::Halo);
+    if is_fullscreen_anim {
         let mut g = match state().lock() {
             Ok(g) => g,
             Err(_) => return,
@@ -942,6 +1149,7 @@ unsafe fn sync(hwnd: isize) {
         };
         g.edge_level = next;
         if target == 0.0 && next <= 0.01 {
+            g.edge_level = 0.0;
             g.visible = false;
             edge_done = true;
         }
@@ -977,7 +1185,7 @@ unsafe fn sync(hwnd: isize) {
     // 降帧率是另一条(有观感代价)的选项,不在本次改动里。
     // 边缘光按 `edge_fps()` 的节拍重画:30fps 时**隔一拍才画一次**(省一半整屏绘制)。
     // 注意缓动在上面已经按真实间隔算过,所以"少画"只影响平滑度,不影响时长。
-    let edge_due = mode == Mode::Edge && {
+    let edge_due = is_fullscreen_anim && {
         let budget = std::time::Duration::from_millis((1000 / edge_fps().max(1)) as u64);
         let mut last = EDGE_LAST_PAINT
             .get_or_init(|| Mutex::new(std::time::Instant::now() - budget))
@@ -1003,14 +1211,14 @@ unsafe fn sync(hwnd: isize) {
         Mode::Bar => measure(&status, &text),
         Mode::Orb => orb_size(),
         // 边缘光铺满整个屏幕(物理像素)
-        Mode::Edge => (sw, sh),
+        Mode::Edge | Mode::Halo => (sw, sh),
     };
     // 固定在屏幕**中下方**、任务栏上面一点点(用户明确要求)。
     // 不再跟随光标/鼠标 —— 跟随会在打字时来回跳,反而更干扰。
     // `at` 仍然保留:overlay-demo 用它把内容摆到指定坐标做预览。
     let (mut x, mut y) = match mode {
         // 边缘光永远贴 (0,0) 铺满,不走锚点
-        Mode::Edge => (0, 0),
+        Mode::Edge | Mode::Halo => (0, 0),
         _ => match at {
             Some((ax, ay)) => (ax, ay),
             None => anchor_pos(w, h),
@@ -1296,6 +1504,10 @@ unsafe fn paint(hwnd: isize, panel: &Rect, draw: bool) {
                     let lv = state().lock().map(|g| g.edge_level).unwrap_or(0.0);
                     d2d_paint_edge(mem_dc, &canvas, clear, &layout, offset, lv);
                 }
+                Mode::Halo => {
+                    let lv = state().lock().map(|g| g.edge_level).unwrap_or(0.0);
+                    paint_halo(bits, sw, sh, lv);
+                }
             }
         }
     });
@@ -1350,6 +1562,18 @@ fn content_rects(mode: Mode, panel: &Rect, sw: i32, sh: i32) -> [Rect; DIRTY_MAX
                     right: r as i32,
                     bottom: b as i32,
                 });
+            }
+        }
+        Mode::Halo => {
+            let reach = halo_reach_px(sw, sh, scale());
+            let bands = [
+                Rect { left: 0, top: 0, right: sw, bottom: reach },
+                Rect { left: sw - reach, top: 0, right: sw, bottom: sh },
+                Rect { left: 0, top: sh - reach, right: sw, bottom: sh },
+                Rect { left: 0, top: 0, right: reach, bottom: sh },
+            ];
+            for (i, r) in bands.iter().enumerate() {
+                out[i] = pad1(r);
             }
         }
     }
@@ -2158,6 +2382,764 @@ fn hue_to_rgb(h: f32) -> (f32, f32, f32) {
     }
 }
 
+// ------------------------------------------------------------------ 流光光晕 (Halo)
+
+const HALO_CELL_DP: f32 = 5.0;
+
+struct HaloCache {
+    gw: usize,
+    gh: usize,
+    sw_lut: i32,
+    s_lut: f32,
+    pad_lut: usize,
+    reach_lut: usize,
+    l1: Vec<[f32; 4]>,
+    l2: Vec<[f32; 4]>,
+    blur_scratch: Vec<[f32; 4]>,
+    col_acc: Vec<[f32; 4]>,
+    l1_u64: Vec<u64>,
+    row_mix: Vec<u64>,
+    w_lut: Vec<(u16, u16)>,
+    full_runs: Vec<(u16, u16, u16)>,
+    left_runs: Vec<(u16, u16, u16)>,
+    right_runs: Vec<(u16, u16, u16)>,
+}
+
+fn build_gx_runs(gx_of_px: &[u16], x_lo: usize, x_hi: usize, out: &mut Vec<(u16, u16, u16)>) {
+    out.clear();
+    if x_lo >= x_hi {
+        return;
+    }
+    let mut cur = gx_of_px[x_lo];
+    let mut start = x_lo;
+    for px in (x_lo + 1)..x_hi {
+        let g = gx_of_px[px];
+        if g != cur {
+            out.push((cur, start as u16, px as u16));
+            cur = g;
+            start = px;
+        }
+    }
+    out.push((cur, start as u16, x_hi as u16));
+}
+
+impl HaloCache {
+    fn prepare(&mut self, gw: usize, gh: usize, sw: usize, pad_c: usize, reach_u: usize, s: f32) {
+        let need = gw * gh;
+        if self.gw != gw || self.gh != gh || self.l1.len() != need {
+            self.gw = gw;
+            self.gh = gh;
+            self.l1.resize(need, [0.0; 4]);
+            self.l2.resize(need, [0.0; 4]);
+            self.blur_scratch.resize(need, [0.0; 4]);
+            self.col_acc.resize(gw, [0.0; 4]);
+            self.l1_u64.resize(need, 0);
+            self.row_mix.resize(gw, 0);
+        }
+        unsafe {
+            std::ptr::write_bytes(self.l1.as_mut_ptr(), 0, need);
+            std::ptr::write_bytes(self.l2.as_mut_ptr(), 0, need);
+        }
+        if self.sw_lut != sw as i32
+            || (self.s_lut - s).abs() > 1e-4
+            || self.pad_lut != pad_c
+            || self.reach_lut != reach_u
+            || self.w_lut.len() != sw
+        {
+            self.sw_lut = sw as i32;
+            self.s_lut = s;
+            self.pad_lut = pad_c;
+            self.reach_lut = reach_u;
+            let inv_cell = 1.0 / (HALO_CELL_DP * s);
+            let pad_f = pad_c as f32 - 0.5;
+            let max_gx = (gw.saturating_sub(2)) as f32;
+            self.w_lut.clear();
+            self.w_lut.reserve(sw);
+            let mut gx_of_px = Vec::with_capacity(sw);
+            for px in 0..sw {
+                let gxf = (px as f32 * inv_cell + pad_f).clamp(0.0, max_gx);
+                let gx0 = gxf as usize;
+                let fx = gxf - gx0 as f32;
+                let w1 = (fx * 64.0 + 0.5) as u16;
+                let w0 = 64 - w1;
+                self.w_lut.push((w0, w1));
+                gx_of_px.push(gx0 as u16);
+            }
+            build_gx_runs(&gx_of_px, 0, sw, &mut self.full_runs);
+            build_gx_runs(&gx_of_px, 0, reach_u, &mut self.left_runs);
+            build_gx_runs(
+                &gx_of_px,
+                sw.saturating_sub(reach_u),
+                sw,
+                &mut self.right_runs,
+            );
+        }
+    }
+}
+
+thread_local! {
+    static HALO_CACHE: std::cell::RefCell<Option<HaloCache>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+fn halo_reach_dp(cfg: &GlowConfig) -> f32 {
+    (1.15 * cfg.peak_thickness + 1.65 * cfg.blur_radius + 2.0 * HALO_CELL_DP).clamp(48.0, 260.0)
+}
+
+fn halo_reach_px(sw: i32, sh: i32, s: f32) -> i32 {
+    let cfg = halo_config();
+    let s = s.max(0.5);
+    let reach_dp = halo_reach_dp(&cfg);
+    ((reach_dp * s).ceil() as i32).min(sw / 2).min(sh / 2).max(0)
+}
+
+fn halo_clock_secs() -> f64 {
+    use std::sync::LazyLock;
+    use std::time::Instant;
+    static START: LazyLock<Instant> = LazyLock::new(Instant::now);
+    START.elapsed().as_secs_f64()
+}
+
+#[inline]
+fn lerp3(a: (f32, f32, f32), b: (f32, f32, f32), t: f32) -> (f32, f32, f32) {
+    let t = t.clamp(0.0, 1.0);
+    (a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t, a.2 + (b.2 - a.2) * t)
+}
+
+#[inline]
+fn halo_wave_thickness(norm_s: f32, ph_w1: f32, ph_w2: f32, cfg: &GlowConfig) -> f32 {
+    let w1 = (norm_s * std::f32::consts::TAU * 2.0 - ph_w1).sin();
+    let w2 = (norm_s * std::f32::consts::TAU + ph_w2).sin();
+    let base = (0.5 + 0.35 * w1 + 0.15 * w2).max(0.0);
+    let wave = base.powf(1.8) * cfg.dynamics + (1.0 - cfg.dynamics) * 0.5;
+    cfg.valley_thickness + (cfg.peak_thickness - cfg.valley_thickness) * wave
+}
+
+#[inline]
+fn halo_perim_point(s: f32, dw: f32, dh: f32, per: f32) -> (f32, f32, f32, f32) {
+    let mut pos = s.rem_euclid(per);
+    if pos < dw {
+        return (pos, 0.0, 0.0, 1.0);
+    }
+    pos -= dw;
+    if pos < dh {
+        return (dw, pos, -1.0, 0.0);
+    }
+    pos -= dh;
+    if pos < dw {
+        return (dw - pos, dh, 0.0, -1.0);
+    }
+    pos -= dw;
+    (0.0, dh - pos, 1.0, 0.0)
+}
+
+#[inline]
+fn halo_conic_color(
+    tint: HaloTint,
+    pal: ((f32, f32, f32), (f32, f32, f32), (f32, f32, f32)),
+    x: f32,
+    y: f32,
+    dw: f32,
+    dh: f32,
+    ph_conic: f32,
+) -> (f32, f32, f32) {
+    let ang = ((y - dh * 0.5).atan2(x - dw * 0.5) - ph_conic).rem_euclid(std::f32::consts::TAU);
+    let u = ang / std::f32::consts::TAU;
+    if tint == HaloTint::Rainbow {
+        return hue_to_rgb(u);
+    }
+    let (pri, hi, dep) = pal;
+    if u < 0.3 {
+        lerp3(pri, hi, u / 0.3)
+    } else if u < 0.6 {
+        lerp3(hi, dep, (u - 0.3) / 0.3)
+    } else {
+        lerp3(dep, pri, (u - 0.6) / 0.4)
+    }
+}
+
+fn box_blur_border(
+    buf: &mut [[f32; 4]],
+    blur_scratch: &mut [[f32; 4]],
+    col_acc: &mut [[f32; 4]],
+    gw: usize,
+    gh: usize,
+    band: usize,
+    r: usize,
+    passes: usize,
+) {
+    if r == 0 || gw == 0 || gh == 0 || passes == 0 {
+        return;
+    }
+    let inv = 1.0 / (2 * r + 1) as f32;
+    let bx = band.min(gw);
+    let by = band.min(gh);
+    let full_x = 2 * bx >= gw;
+    let full_y = 2 * by >= gh;
+
+    for _ in 0..passes {
+        // 水平方向（按行切片，消除边界检查）
+        for gy in 0..gh {
+            let row = gy * gw;
+            let src = &buf[row..row + gw];
+            let dst = &mut blur_scratch[row..row + gw];
+            let span_count = if full_x || gy < by || gy >= gh - by { 1 } else { 2 };
+            let spans = if span_count == 1 {
+                [(0, gw), (0, 0)]
+            } else {
+                [(0, bx), (gw - bx, gw)]
+            };
+            for &(x0, x1) in spans[..span_count].iter() {
+                let mut a0 = 0.0f32;
+                let mut a1 = 0.0f32;
+                let mut a2 = 0.0f32;
+                let mut a3 = 0.0f32;
+                let k_lo = (x0 as isize - r as isize).max(0) as usize;
+                let k_hi = (x0 + r).min(gw - 1);
+                for &p in &src[k_lo..=k_hi] {
+                    a0 += p[0];
+                    a1 += p[1];
+                    a2 += p[2];
+                    a3 += p[3];
+                }
+                for gx in x0..x1 {
+                    dst[gx] = [a0 * inv, a1 * inv, a2 * inv, a3 * inv];
+                    let ir = gx + r + 1;
+                    if ir < gw {
+                        let p = src[ir];
+                        a0 += p[0];
+                        a1 += p[1];
+                        a2 += p[2];
+                        a3 += p[3];
+                    }
+                    if gx >= r {
+                        let p = src[gx - r];
+                        a0 -= p[0];
+                        a1 -= p[1];
+                        a2 -= p[2];
+                        a3 -= p[3];
+                    }
+                }
+            }
+        }
+
+        // 垂直方向：按行顺序滑动列累加器，100% 顺序缓存命中
+        let v_span = |acc: &mut [[f32; 4]],
+                      tmp_ref: &[[f32; 4]],
+                      buf_mut: &mut [[f32; 4]],
+                      y0: usize,
+                      y1: usize,
+                      x0: usize,
+                      x1: usize| {
+            for gy in y0..y1 {
+                let out_row = &mut buf_mut[gy * gw..(gy + 1) * gw];
+                for gx in x0..x1 {
+                    let a = acc[gx];
+                    out_row[gx] = [a[0] * inv, a[1] * inv, a[2] * inv, a[3] * inv];
+                }
+                let ib = gy + r + 1;
+                if ib < gh {
+                    let add_row = &tmp_ref[ib * gw..(ib + 1) * gw];
+                    for gx in x0..x1 {
+                        let p = add_row[gx];
+                        acc[gx][0] += p[0];
+                        acc[gx][1] += p[1];
+                        acc[gx][2] += p[2];
+                        acc[gx][3] += p[3];
+                    }
+                }
+                if gy >= r {
+                    let sub_row = &tmp_ref[(gy - r) * gw..(gy - r + 1) * gw];
+                    for gx in x0..x1 {
+                        let p = sub_row[gx];
+                        acc[gx][0] -= p[0];
+                        acc[gx][1] -= p[1];
+                        acc[gx][2] -= p[2];
+                        acc[gx][3] -= p[3];
+                    }
+                }
+            }
+        };
+
+        for slot in col_acc.iter_mut() {
+            *slot = [0.0; 4];
+        }
+        let k0_hi = r.min(gh - 1);
+        for k in 0..=k0_hi {
+            let row_k = &blur_scratch[k * gw..(k + 1) * gw];
+            for gx in 0..gw {
+                let p = row_k[gx];
+                col_acc[gx][0] += p[0];
+                col_acc[gx][1] += p[1];
+                col_acc[gx][2] += p[2];
+                col_acc[gx][3] += p[3];
+            }
+        }
+        if full_y {
+            v_span(col_acc, blur_scratch, buf, 0, gh, 0, gw);
+        } else {
+            v_span(col_acc, blur_scratch, buf, 0, by, 0, gw);
+            if !full_x {
+                v_span(col_acc, blur_scratch, buf, by, gh - by, 0, bx);
+                let mid_k_lo = by.saturating_sub(r);
+                let mid_k_hi = (by + r).min(gh - 1);
+                for gx in (gw - bx)..gw {
+                    col_acc[gx] = [0.0; 4];
+                }
+                for k in mid_k_lo..=mid_k_hi {
+                    let row_k = &blur_scratch[k * gw..(k + 1) * gw];
+                    for gx in (gw - bx)..gw {
+                        let p = row_k[gx];
+                        col_acc[gx][0] += p[0];
+                        col_acc[gx][1] += p[1];
+                        col_acc[gx][2] += p[2];
+                        col_acc[gx][3] += p[3];
+                    }
+                }
+                v_span(col_acc, blur_scratch, buf, by, gh - by, gw - bx, gw);
+            } else {
+                v_span(col_acc, blur_scratch, buf, by, gh - by, 0, gw);
+            }
+            let bot_y0 = gh - by;
+            let bot_k_lo = bot_y0.saturating_sub(r);
+            let bot_k_hi = (bot_y0 + r).min(gh - 1);
+            for slot in col_acc.iter_mut() {
+                *slot = [0.0; 4];
+            }
+            for k in bot_k_lo..=bot_k_hi {
+                let row_k = &blur_scratch[k * gw..(k + 1) * gw];
+                for gx in 0..gw {
+                    let p = row_k[gx];
+                    col_acc[gx][0] += p[0];
+                    col_acc[gx][1] += p[1];
+                    col_acc[gx][2] += p[2];
+                    col_acc[gx][3] += p[3];
+                }
+            }
+            v_span(col_acc, blur_scratch, buf, bot_y0, gh, 0, gw);
+        }
+    }
+}
+
+/// 在整屏 DIB (`bits`, 32bpp premultiplied BGRA) 里绘制双层高斯流光光晕（不走 D2D，零设备资源创建）。
+unsafe fn paint_halo(bits: *mut u8, sw: i32, sh: i32, level: f32) {
+    paint_halo_with_time(bits, sw, sh, level, halo_clock_secs());
+}
+
+unsafe fn paint_halo_with_time(bits: *mut u8, sw: i32, sh: i32, level: f32, raw_secs: f64) {
+    if level <= 0.002 || sw <= 0 || sh <= 0 || bits.is_null() {
+        return;
+    }
+    let s = scale().max(0.5);
+    let cfg = halo_config();
+    let tint = halo_tint();
+    let pal = tint.palette();
+    let (_, hi_col, _) = pal;
+    let eff_opacity = (cfg.opacity * level).clamp(0.0, 1.0);
+    if eff_opacity <= 0.002 {
+        return;
+    }
+
+    let reach_px = halo_reach_px(sw, sh, s);
+    if reach_px <= 0 {
+        return;
+    }
+
+    let dw = sw as f32 / s;
+    let dh = sh as f32 / s;
+    let per = 2.0 * (dw + dh);
+    if per <= 1.0 {
+        return;
+    }
+
+    // 用 f64 取模避免长时间运行后 f32 相位丢失精度
+    let t_s = raw_secs * cfg.flow_speed as f64;
+    let tau = std::f64::consts::TAU;
+    let ph_w1 = ((t_s * 2.2).rem_euclid(tau)) as f32;
+    let ph_w2 = ((t_s * 1.1).rem_euclid(tau)) as f32;
+    let ph_conic = ((t_s * 0.6).rem_euclid(tau)) as f32;
+
+    let r1 = (((cfg.blur_radius * 0.55) / HALO_CELL_DP - 0.3).round() as usize).clamp(1, 18);
+    let r2 = ((((cfg.blur_radius * 0.35).max(6.0) * 0.5) / HALO_CELL_DP).round() as usize).clamp(1, 8);
+    let pad_c = ((0.6 * cfg.peak_thickness / HALO_CELL_DP).ceil() as usize + r1 + 3).clamp(8, 26);
+    let reach_dp = halo_reach_dp(&cfg);
+    let reach_c = (reach_dp / HALO_CELL_DP).ceil() as usize + 2;
+    let band = pad_c + reach_c;
+
+    let cw = (dw / HALO_CELL_DP).ceil() as usize;
+    let ch = (dh / HALO_CELL_DP).ceil() as usize;
+    let gw = cw + 2 * pad_c;
+    let gh = ch + 2 * pad_c;
+    let sw_u = sw as usize;
+    let sh_u = sh as usize;
+    let reach_u = (reach_px as usize).min(sw_u / 2).min(sh_u / 2);
+
+    HALO_CACHE.with(|slot| {
+        let mut guard = slot.borrow_mut();
+        let cache = guard.get_or_insert_with(|| HaloCache {
+            gw: 0,
+            gh: 0,
+            sw_lut: 0,
+            s_lut: 0.0,
+            pad_lut: 0,
+            reach_lut: 0,
+            l1: Vec::new(),
+            l2: Vec::new(),
+            blur_scratch: Vec::new(),
+            col_acc: Vec::new(),
+            l1_u64: Vec::new(),
+            row_mix: Vec::new(),
+            w_lut: Vec::new(),
+            full_runs: Vec::new(),
+            left_runs: Vec::new(),
+            right_runs: Vec::new(),
+        });
+        cache.prepare(gw, gh, sw_u, pad_c, reach_u, s);
+        let step_dp = 22.0f32;
+        let n_splats = ((per / step_dp).round() as usize).max(100);
+        let splat_alpha_scale = (step_dp / 24.0).min(1.0);
+        for i in 0..n_splats {
+            let ns = i as f32 / n_splats as f32;
+            let s_pos = ns * per;
+            let (px, py, nx, ny) = halo_perim_point(s_pos, dw, dh, per);
+            let thickness = halo_wave_thickness(ns, ph_w1, ph_w2, &cfg);
+            let cx = px + nx * (0.3 * thickness);
+            let cy = py + ny * (0.3 * thickness);
+            let rad = (0.8 * thickness).max(2.0);
+            let rad2 = rad * rad;
+            let inv_rad = 1.0 / rad;
+
+            let gx_min = (((cx - rad) / HALO_CELL_DP + pad_c as f32).floor() as isize).max(0) as usize;
+            let gx_max = (((cx + rad) / HALO_CELL_DP + pad_c as f32).ceil() as usize).min(gw - 1);
+            let gy_min = (((cy - rad) / HALO_CELL_DP + pad_c as f32).floor() as isize).max(0) as usize;
+            let gy_max = (((cy + rad) / HALO_CELL_DP + pad_c as f32).ceil() as usize).min(gh - 1);
+
+            let splat_col = if tint == HaloTint::Rainbow {
+                let c_p = hue_to_rgb((ns - ph_conic / std::f32::consts::TAU).rem_euclid(1.0));
+                (c_p, lerp3(c_p, (1.0, 1.0, 1.0), 0.35))
+            } else {
+                (pal.0, pal.1)
+            };
+
+            for gy in gy_min..=gy_max {
+                let y = (gy as f32 - pad_c as f32 + 0.5) * HALO_CELL_DP;
+                let dy = y - cy;
+                let dy2 = dy * dy;
+                if dy2 > rad2 {
+                    continue;
+                }
+                let row_l1 = &mut cache.l1[gy * gw..(gy + 1) * gw];
+                for gx in gx_min..=gx_max {
+                    let x = (gx as f32 - pad_c as f32 + 0.5) * HALO_CELL_DP;
+                    let dx = x - cx;
+                    let d2 = dx * dx + dy2;
+                    if d2 > rad2 {
+                        continue;
+                    }
+                    let u = d2.sqrt() * inv_rad;
+                    let col = if u < 0.4 {
+                        lerp3(splat_col.1, splat_col.0, u * 2.5)
+                    } else {
+                        splat_col.0
+                    };
+                    let a = (if u < 0.4 { 1.0 } else { (1.0 - u) * (1.0 / 0.6) }) * splat_alpha_scale;
+                    if a <= 0.001 {
+                        continue;
+                    }
+                    let sr = col.0 * a;
+                    let sg = col.1 * a;
+                    let sb = col.2 * a;
+                    let dst = &mut row_l1[gx];
+                    dst[0] += sr - dst[0] * sr;
+                    dst[1] += sg - dst[1] * sg;
+                    dst[2] += sb - dst[2] * sb;
+                    dst[3] += a - dst[3] * a;
+                }
+            }
+        }
+
+        // 2. Layer 2: 近场柔光流波带（仅扫紧贴边缘的 band2，跳过屏中空白）
+        let half_dw = dw * 0.5;
+        let half_dh = dh * 0.5;
+        let max_rib = 0.55 * cfg.peak_thickness + HALO_CELL_DP;
+        let band2 = (pad_c + (max_rib * 1.45 / HALO_CELL_DP).ceil() as usize + 2).min(band);
+        let bx2 = band2.min(gw);
+        let by2 = band2.min(gh);
+        for gy in 0..gh {
+            let y = (gy as f32 - pad_c as f32 + 0.5) * HALO_CELL_DP;
+            if y < -HALO_CELL_DP || y > dh + HALO_CELL_DP {
+                continue;
+            }
+            let full_row = 2 * bx2 >= gw || gy < by2 || gy >= gh.saturating_sub(by2);
+            let row_l2 = &mut cache.l2[gy * gw..(gy + 1) * gw];
+            let mut write_cell = |gx: usize| {
+                let x = (gx as f32 - pad_c as f32 + 0.5) * HALO_CELL_DP;
+                if x < -HALO_CELL_DP || x > dw + HALO_CELL_DP {
+                    return;
+                }
+                let d_smooth = if x < 0.0 || x > dw || y < 0.0 || y > dh {
+                    let cx = x.clamp(0.0, dw);
+                    let cy = y.clamp(0.0, dh);
+                    -((x - cx) * (x - cx) + (y - cy) * (y - cy)).sqrt()
+                } else {
+                    let mx = x.min(dw - x);
+                    let my = y.min(dh - y);
+                    if mx > max_rib * 1.42 && my > max_rib * 1.42 {
+                        return;
+                    }
+                    let denom = (mx * mx + my * my).sqrt();
+                    if denom <= 1e-6 {
+                        0.0
+                    } else {
+                        (mx * my) / denom
+                    }
+                };
+                if d_smooth < -HALO_CELL_DP || d_smooth > max_rib {
+                    return;
+                }
+                let vx = x - half_dw;
+                let vy = y - half_dh;
+                let tx = if vx.abs() > 1e-5 { half_dw / vx.abs() } else { 1e9 };
+                let ty = if vy.abs() > 1e-5 { half_dh / vy.abs() } else { 1e9 };
+                let t_hit = tx.min(ty);
+                let bx_p = half_dw + vx * t_hit;
+                let by_p = half_dh + vy * t_hit;
+                let s_pos = if by_p <= 0.001 {
+                    bx_p
+                } else if bx_p >= dw - 0.001 {
+                    dw + by_p
+                } else if by_p >= dh - 0.001 {
+                    dw + dh + (dw - bx_p)
+                } else {
+                    2.0 * dw + dh + (dh - by_p)
+                };
+                let ns = (s_pos / per).rem_euclid(1.0);
+                let rib = 0.55 * halo_wave_thickness(ns, ph_w1, ph_w2, &cfg);
+                let cov = if d_smooth < 0.0 {
+                    (1.0 + d_smooth / HALO_CELL_DP).max(0.0)
+                } else if d_smooth > rib - 0.5 * HALO_CELL_DP {
+                    ((rib + 0.5 * HALO_CELL_DP - d_smooth) / HALO_CELL_DP).clamp(0.0, 1.0)
+                } else {
+                    1.0
+                };
+                if cov <= 0.001 {
+                    return;
+                }
+                let col = halo_conic_color(tint, pal, x, y, dw, dh, ph_conic);
+                row_l2[gx] = [col.0 * cov, col.1 * cov, col.2 * cov, cov];
+            };
+            if full_row {
+                for gx in 0..gw {
+                    write_cell(gx);
+                }
+            } else {
+                for gx in 0..bx2 {
+                    write_cell(gx);
+                }
+                for gx in (gw - bx2)..gw {
+                    write_cell(gx);
+                }
+            }
+        }
+
+        let band_l2 = (band2 + 3 * r2 + 1).min(band);
+        box_blur_border(&mut cache.l1, &mut cache.blur_scratch, &mut cache.col_acc, gw, gh, band, r1, 3);
+        box_blur_border(&mut cache.l2, &mut cache.blur_scratch, &mut cache.col_acc, gw, gh, band_l2, r2, 2);
+        // 2.5 粗网格完成 Screen 合成并直接打包为 10-bit×4 SWAR u64（零逐行 float→int 转换）
+        let bx_m = band.min(gw);
+        let by_m = band.min(gh);
+        let full_m = 2 * bx_m >= gw;
+        for gy in 0..gh {
+            let row_start = gy * gw;
+            let full_row = full_m || gy < by_m || gy >= gh.saturating_sub(by_m);
+            let merge_span = |l1: &[[f32; 4]], l2: &[[f32; 4]], out: &mut [u64], x0: usize, x1: usize| {
+                for gx in x0..x1 {
+                    let a = l1[row_start + gx];
+                    let b = l2[row_start + gx];
+                    let a1v = a[3] * eff_opacity;
+                    let a2v = b[3] * eff_opacity;
+                    let av = a1v + a2v - a1v * a2v;
+                    let a_q = (av.clamp(0.0, 1.0) * 1020.0 + 0.5) as u64;
+                    if a_q == 0 {
+                        out[row_start + gx] = 0;
+                        continue;
+                    }
+                    let r1v = a[0] * eff_opacity;
+                    let g1v = a[1] * eff_opacity;
+                    let b1v = a[2] * eff_opacity;
+                    let r2v = b[0] * eff_opacity;
+                    let g2v = b[1] * eff_opacity;
+                    let b2v = b[2] * eff_opacity;
+                    let rv = r1v + r2v - r1v * r2v;
+                    let gv = g1v + g2v - g1v * g2v;
+                    let bv = b1v + b2v - b1v * b2v;
+                    let r_q = ((rv.clamp(0.0, 1.0) * 1020.0 + 0.5) as u64).min(a_q);
+                    let g_q = ((gv.clamp(0.0, 1.0) * 1020.0 + 0.5) as u64).min(a_q);
+                    let b_q = ((bv.clamp(0.0, 1.0) * 1020.0 + 0.5) as u64).min(a_q);
+                    out[row_start + gx] = (a_q << 48) | (r_q << 32) | (g_q << 16) | b_q;
+                }
+            };
+            if full_row {
+                merge_span(&cache.l1, &cache.l2, &mut cache.l1_u64, 0, gw);
+            } else {
+                merge_span(&cache.l1, &cache.l2, &mut cache.l1_u64, 0, bx_m);
+                merge_span(&cache.l1, &cache.l2, &mut cache.l1_u64, gw - bx_m, gw);
+            }
+        }
+
+        // 3. 纯整型 SWAR 垂直混合 + gx 块双线性上采样直写 DIB（零像素级零区分支）
+        let inv_cell = 1.0 / (HALO_CELL_DP * s);
+        let pad_f = pad_c as f32 - 0.5;
+        let max_gy = (gh - 2) as f32;
+        let bx_mix = cache
+            .left_runs
+            .last()
+            .map(|r| (r.0 as usize + 2).min(gw))
+            .unwrap_or(0);
+        let x_right_gx_lo = cache
+            .right_runs
+            .first()
+            .map(|r| (r.0 as usize).min(gw.saturating_sub(2)))
+            .unwrap_or(0);
+        let l1_u64 = &cache.l1_u64;
+        let w_lut = &cache.w_lut;
+        let full_runs = &cache.full_runs;
+        let left_runs = &cache.left_runs;
+        let right_runs = &cache.right_runs;
+        let mix = &mut cache.row_mix;
+
+        let paint_row_runs = |py: usize, runs: &[(u16, u16, u16)], is_full: bool, mix: &mut [u64]| {
+            let gyf = (py as f32 * inv_cell + pad_f).clamp(0.0, max_gy);
+            let gy0 = gyf as usize;
+            let fy = gyf - gy0 as f32;
+            let wy1 = (fy * 64.0 + 0.5) as u64;
+            let wy0 = 64 - wy1;
+            let r0 = &l1_u64[gy0 * gw..(gy0 + 1) * gw];
+            let r1 = &l1_u64[(gy0 + 1) * gw..(gy0 + 2) * gw];
+            let mix_range = |m: &mut [u64], lo: usize, hi: usize| {
+                for gx in lo..hi {
+                    let c0 = *r0.get_unchecked(gx);
+                    let c1 = *r1.get_unchecked(gx);
+                    let v = (c0
+                        .wrapping_mul(wy0)
+                        .wrapping_add(c1.wrapping_mul(wy1))
+                        .wrapping_add(0x0020_0020_0020_0020)
+                        >> 6)
+                        & 0x03FF_03FF_03FF_03FF;
+                    *m.get_unchecked_mut(gx) = v;
+                }
+            };
+            if is_full {
+                mix_range(mix, 0, gw);
+            } else {
+                mix_range(mix, 0, bx_mix);
+                mix_range(mix, x_right_gx_lo, gw);
+            }
+
+            let row_ptr = (bits.add(py * sw_u * 4)) as *mut u32;
+            for &(gx, px0, px1) in runs {
+                let c0 = *mix.get_unchecked(gx as usize);
+                let c1 = *mix.get_unchecked(gx as usize + 1);
+                if (c0 | c1) == 0 {
+                    continue;
+                }
+                for px in (px0 as usize)..(px1 as usize) {
+                    let (w0, w1) = *w_lut.get_unchecked(px);
+                    let sum = c0
+                        .wrapping_mul(w0 as u64)
+                        .wrapping_add(c1.wrapping_mul(w1 as u64))
+                        .wrapping_add(0x0080_0080_0080_0080);
+                    let x = (sum >> 8) & 0x00FF_00FF_00FF_00FF;
+                    let lo = x | (x >> 8);
+                    *row_ptr.add(px) = ((lo & 0xFFFF) | ((lo >> 16) & 0xFFFF_0000)) as u32;
+                }
+            }
+        };
+
+        if 2 * reach_u >= sh_u {
+            for py in 0..sh_u {
+                paint_row_runs(py, full_runs, true, mix);
+            }
+        } else {
+            for py in 0..reach_u {
+                paint_row_runs(py, full_runs, true, mix);
+            }
+            for py in (sh_u - reach_u)..sh_u {
+                paint_row_runs(py, full_runs, true, mix);
+            }
+            if 2 * reach_u >= sw_u {
+                for py in reach_u..(sh_u - reach_u) {
+                    paint_row_runs(py, full_runs, true, mix);
+                }
+            } else {
+                for py in reach_u..(sh_u - reach_u) {
+                    paint_row_runs(py, left_runs, false, mix);
+                    paint_row_runs(py, right_runs, false, mix);
+                }
+            }
+        }
+
+        // 4. 贴边 1.5dp 柔高光线单独后叠加（仅 ~1% 边框像素，不拖慢主采样循环）
+        let rim_alpha_base = eff_opacity * cfg.rim_opacity;
+        if rim_alpha_base > 0.002 {
+            let rim_px = ((1.5 * s).ceil() as usize).min(sw_u / 2).min(sh_u / 2);
+            let inv_255 = 1.0 / 255.0;
+            let blend_rim_px = |py: usize, px: usize| {
+                let dy_edge = (py as f32).min((sh_u - 1 - py) as f32) / s;
+                let dx_edge = (px as f32).min((sw_u - 1 - px) as f32) / s;
+                let d_edge = dy_edge.min(dx_edge);
+                if d_edge >= 1.5 {
+                    return;
+                }
+                let ra = rim_alpha_base * (1.5 - d_edge).min(1.0);
+                let (rh, gh_c, bh) = if tint == HaloTint::Rainbow {
+                    hue_to_rgb((px as f32 / sw_u.max(1) as f32 - ph_conic / std::f32::consts::TAU).rem_euclid(1.0))
+                } else {
+                    hi_col
+                };
+                let rr = rh * ra;
+                let rg = gh_c * ra;
+                let rb = bh * ra;
+                let p = bits.add((py * sw_u + px) * 4);
+                let b0 = *p as f32 * inv_255;
+                let g0 = *p.add(1) as f32 * inv_255;
+                let r0 = *p.add(2) as f32 * inv_255;
+                let a0 = *p.add(3) as f32 * inv_255;
+                let a = a0 + ra - a0 * ra;
+                let a_u8 = (a.clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
+                if a_u8 == 0 {
+                    return;
+                }
+                let b_u8 = (((b0 + rb - b0 * rb).clamp(0.0, 1.0) * 255.0 + 0.5) as u8).min(a_u8);
+                let g_u8 = (((g0 + rg - g0 * rg).clamp(0.0, 1.0) * 255.0 + 0.5) as u8).min(a_u8);
+                let r_u8 = (((r0 + rr - r0 * rr).clamp(0.0, 1.0) * 255.0 + 0.5) as u8).min(a_u8);
+                *p = b_u8;
+                *p.add(1) = g_u8;
+                *p.add(2) = r_u8;
+                *p.add(3) = a_u8;
+            };
+            for py in 0..rim_px {
+                for px in 0..sw_u {
+                    blend_rim_px(py, px);
+                }
+            }
+            for py in (sh_u - rim_px)..sh_u {
+                for px in 0..sw_u {
+                    blend_rim_px(py, px);
+                }
+            }
+            for py in rim_px..(sh_u - rim_px) {
+                for px in 0..rim_px {
+                    blend_rim_px(py, px);
+                }
+                for px in (sw_u - rim_px)..sw_u {
+                    blend_rim_px(py, px);
+                }
+            }
+        }
+    });
+}
+
 /// 细条的文字绘制：**只有正文一行**，垂直居中。
 /// DWrite 资源缓存(T6.4)。
 ///
@@ -2485,6 +3467,58 @@ mod tests {
         assert!(e[1].left > 0 && e[1].left < sw && e[1].right >= sw && e[1].bottom >= sh);
         assert!(e[2].left <= 0 && e[2].right >= sw && e[2].top > 0 && e[2].bottom >= sh);
         assert!(e[3].left <= 0 && e[3].right > 0 && e[3].top <= 0 && e[3].bottom >= sh);
+
+        // 流光光晕:同样覆盖四条贴边带
+        let h = content_rects(Mode::Halo, &Rect::default(), sw, sh);
+        assert!(h[0].left <= 0 && h[0].top <= 0 && h[0].right >= sw && h[0].bottom > 0);
+        assert!(h[1].left > 0 && h[1].left < sw && h[1].right >= sw && h[1].bottom >= sh);
+        assert!(h[2].left <= 0 && h[2].right >= sw && h[2].top > 0 && h[2].bottom >= sh);
+        assert!(h[3].left <= 0 && h[3].right > 0 && h[3].top <= 0 && h[3].bottom >= sh);
+    }
+
+    /// 回归:Halo 渲染的像素必须严格落在 content_rects 内、满足预乘 BGRA 约束、且默认参数与电光蓝生效。
+    #[test]
+    fn halo_pixels_stay_inside_content_rects_and_valid_premultiplied() {
+        let (sw, sh) = (960i32, 600i32);
+        let mut buf = vec![0u8; (sw * sh * 4) as usize];
+        set_halo_tint(HaloTint::Blue);
+        set_halo_config(GLOW_CONFIG);
+        unsafe {
+            paint_halo_with_time(buf.as_mut_ptr(), sw, sh, 1.0, 1.5);
+        }
+        let rects = content_rects(Mode::Halo, &Rect::default(), sw, sh);
+        let in_rects = |x: i32, y: i32| {
+            rects.iter().any(|r| x >= r.left && x < r.right && y >= r.top && y < r.bottom)
+        };
+        let mut max_edge_a = 0u8;
+        let mut edge_blue_gt_red = false;
+        for y in 0..sh {
+            for x in 0..sw {
+                let off = ((y * sw + x) * 4) as usize;
+                let (b, g, r, a) = (buf[off], buf[off + 1], buf[off + 2], buf[off + 3]);
+                assert!(b <= a && g <= a && r <= a, "预乘 alpha 越界 ({x},{y}): [{b},{g},{r},{a}]");
+                if !in_rects(x, y) {
+                    assert_eq!((b, g, r, a), (0, 0, 0, 0), "({x},{y}) 超出 content_rects 脏区");
+                }
+                if y == 4 && x == sw / 2 {
+                    max_edge_a = max_edge_a.max(a);
+                    edge_blue_gt_red = b > r;
+                }
+            }
+        }
+        assert!(max_edge_a > 60, "顶部光晕太暗: a={max_edge_a}");
+        assert!(edge_blue_gt_red, "默认电光蓝应该蓝通道大于红通道");
+
+        // center must be completely untouched
+        let c_off = (((sh / 2) * sw + (sw / 2)) * 4) as usize;
+        assert_eq!(&buf[c_off..c_off + 4], &[0, 0, 0, 0]);
+
+        // level == 0.0 must draw nothing
+        let mut zero_buf = vec![0u8; (sw * sh * 4) as usize];
+        unsafe {
+            paint_halo_with_time(zero_buf.as_mut_ptr(), sw, sh, 0.0, 1.5);
+        }
+        assert!(zero_buf.iter().all(|&v| v == 0));
     }
 
     /// 🔴 实测:被裁剪的 `Clear` 会不会动到画布上**没被清到**的地方。

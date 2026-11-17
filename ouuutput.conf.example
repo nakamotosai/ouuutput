@@ -25,17 +25,28 @@ hotkey = rightctrl
 # true = 按一下开始、再按一下结束（长段听写更省手）；默认按住说话。
 # toggle = false
 
-# ---- 悬浮显示（四选一，互斥）----
-# off = 不显示 / bar = 细条 / orb = 悬浮球 / edge = 屏幕边缘光（默认）
+# ---- 悬浮显示（五选一，互斥）----
+# off = 不显示 / bar = 细条 / orb = 悬浮球 / edge = 屏幕边缘光（默认）/ halo = 流光光晕
 #   细条：半透明，只有一行文字，不挡字
 #   球  ：圆形，录音时波形随真实音量起伏
 #   边缘：四边晕光，完全不占中央，录音时亮起、松手淡出
+#   光晕：双层高斯漫射沿四边波浪式柔和流动（无硬边，Ego 同款柔光）
 # overlay_mode = edge
 
 # 边缘光颜色：white（默认）/ rainbow / amber / cyan / aurora。
 # 白光在深色背景上容易糊成灰雾，彩色更醒目。
 # edge_tint = white
 
+# 流光光晕配色与形态参数（仅 overlay_mode = halo 生效）：
+#   halo_tint     : blue（默认，电光蓝）/ cyan / violet / siri / rainbow
+#   halo_blur     : 高斯漫射模糊度（px，16~96；默认 52）
+#   halo_speed    : 流光速度倍率（0.1~3.0；默认 0.50）
+#   halo_peak     : 波峰向内最大深度（px；默认 33）
+#   halo_valley   : 波谷收拢深度（px；默认 12）
+#   halo_dynamics : 波峰波谷起伏度（0.0~1.0；默认 0.80）
+#   halo_opacity  : 总透明度（0.05~1.0；默认 0.80）
+#   halo_rim      : 贴边高光线强调（0.0~1.0；默认 0.20）
+# halo_tint = blue
 # 兼容老写法：true 等价于 overlay_mode = bar。
 # overlay = true
 

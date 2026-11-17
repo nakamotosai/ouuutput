@@ -210,14 +210,14 @@ powershell -ExecutionPolicy Bypass -File scripts\fetch_models.ps1           # �
 
 ## 7. 悬浮显示不出来
 
-- 默认 `overlay_mode = edge`（屏幕边缘光）；`bar` 是细条，`orb` 是悬浮球，`off` 全关。
+- 默认 `overlay_mode = edge`（屏幕边缘光）；`halo` 是流光光晕，`bar` 是细条，`orb` 是悬浮球，`off` 全关。
 - 停在托盘图标上看不到预览时，用：
 
   ```bat
-  run.bat overlay-demo --mode bar --seconds 10
+  run.bat overlay-demo --mode halo --seconds 6
   ```
 
-- 边缘光在纯白 / 高亮背景上不明显，换 `edge_tint`（`white` / `rainbow` / `amber` / `cyan` / `aurora`）。
+- 边缘光 / 光晕在纯白或高亮背景上不明显时，换 `edge_tint`（`white` / `rainbow` / `amber` / `cyan` / `aurora`）或 `halo_tint`（`blue` / `cyan` / `violet` / `siri` / `rainbow`）。
 - 远程桌面、部分虚拟机里没有桌面合成，悬浮层可能不绘制。
 
 ---

@@ -156,9 +156,11 @@ copy hotwords.example.txt hotwords.txt    # 可选
 | 细条（`bar`） | 只显示实时文字 |
 | 悬浮球（`orb`） | 录音状态 + 真实音量驱动的波形 |
 | 屏幕边缘光（`edge`，**默认**） | 录音时屏幕四边微亮，松手淡出，不占中央 |
+| 流光光晕（`halo`） | 双层高斯漫射沿四边波浪式柔和流动，贴边无硬边 |
 
-光色 5 选 1：白光（默认）/ 彩虹光 / 暖橙光 / 青蓝光 / 极光（青紫）。
-配置写法：`overlay_mode = off|bar|orb|edge`、`edge_tint = white|rainbow|amber|cyan|aurora`。
+边缘光色 5 选 1：白光（默认）/ 彩虹光 / 暖橙光 / 青蓝光 / 极光（青紫）。
+流光光晕配色 5 选 1：电光蓝（默认）/ 天青水色 / 蓝紫极光 / Siri 绚烂 / 流光彩虹。
+配置写法：`overlay_mode = off|bar|orb|edge|halo`、`edge_tint = white|rainbow|amber|cyan|aurora`、`halo_tint = blue|cyan|violet|siri|rainbow`。
 
 预览（不用真录音）：
 
@@ -166,6 +168,7 @@ copy hotwords.example.txt hotwords.txt    # 可选
 ouuutput overlay-demo --mode bar --seconds 10
 ouuutput overlay-demo --mode orb --seconds 6
 ouuutput overlay-demo --mode edge --tint aurora
+ouuutput overlay-demo --mode halo --tint siri
 ```
 
 ---
@@ -189,9 +192,10 @@ toggle = false
 
 model_dir = models/sherpa-onnx-x-asr-160ms-streaming-zipformer-transducer-zh-en-int8-2026-06-05
 
-# 悬浮：off / bar / orb / edge；光色：white / rainbow / amber / cyan / aurora
+# 悬浮：off / bar / orb / edge / halo；光色：edge_tint / halo_tint
 overlay_mode = edge
 edge_tint = white
+halo_tint = blue
 
 # 自动标点 / 数字归一化 / 静音断句秒数（0 = 不断句）/ 推理线程
 punct = true
@@ -201,7 +205,7 @@ threads = 2
 ```
 
 全部可用键：`hotkey` `model_dir` `punct_dir` `hotwords` `punct` `itn` `beam` `toggle` `tray`
-`hide_console` `overlay_mode` `edge_tint` `stream` `lazy_mic` `max_backspace` `throttle_ms`
+`hide_console` `overlay_mode` `edge_tint` `halo_tint` `halo_blur` `halo_speed` `halo_peak` `halo_valley` `halo_dynamics` `halo_opacity` `halo_rim` `stream` `lazy_mic` `max_backspace` `throttle_ms`
 `threads` `device` `rule1` `rule2` `rule3` `punct_mode` `merge_terms` `fix_case` `ctx_bias`
 `ctx_hotwords` `leading_space` `verbose_ctx` `log` `log_dir` `script` `tail_ms`
 `tail_max_ms` `tail_quiet_ms` `tail_pad_ms` `tail_rms`。

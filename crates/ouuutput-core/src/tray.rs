@@ -60,7 +60,7 @@ const ID_SILENCE_BASE: usize = 200;
 const ID_SHOW_CONSOLE: usize = 17;
 /// 开机自启开关（写 HKCU\...\Run）
 const ID_AUTOSTART: usize = 18;
-/// 悬浮显示方式子菜单：关 / 细条 / 悬浮球（三选一，互斥）
+/// 悬浮显示方式子菜单：关 / 细条 / 悬浮球 / 边缘光 / 流光光晕（五选一，互斥）
 const ID_OVERLAY_BASE: usize = 300;
 /// 边缘光颜色子菜单基址（white/rainbow/amber/cyan/aurora）
 const ID_EDGE_TINT_BASE: usize = 320;
@@ -72,6 +72,8 @@ const ID_EDGE_PEAK_BASE: usize = 350;
 const ID_EDGE_SPEED_BASE: usize = 360;
 /// 边缘光**重绘帧率**子菜单基址(60fps / 30fps 省电)
 const ID_EDGE_FPS_BASE: usize = 370;
+/// 流光光晕颜色子菜单基址（blue/cyan/violet/siri/rainbow）
+const ID_HALO_TINT_BASE: usize = 380;
 
 /// 带宽/亮度/速度的预置档位。
 ///
@@ -132,8 +134,10 @@ pub enum TrayToggle {
     UndoLast,
     /// 开机自启开关
     AutoStart,
-    /// 悬浮显示方式：0=关 1=细条 2=悬浮球 3=边缘光
+    /// 悬浮显示方式：0=关 1=细条 2=悬浮球 3=边缘光 4=流光光晕
     SetOverlayMode(usize),
+    /// 流光光晕配色：0=电光蓝 1=天青水色 2=蓝紫极光 3=Siri 4=彩虹
+    SetHaloTint(usize),
     /// 边缘光颜色：0=白 1=彩虹 2=暖橙 3=青蓝 4=极光
     SetEdgeTint(usize),
     /// 边缘光带宽/亮度/速度:各三档(下标见 `EDGE_*_CHOICES`)
@@ -178,6 +182,7 @@ static FLAGS: std::sync::Mutex<TrayFlags> = std::sync::Mutex::new(TrayFlags {
     silence_sec: 15,
     overlay_mode: 0,
     edge_tint: 0,
+    halo_tint: 0,
     edge_spread_idx: 1,
     edge_peak_idx: 1,
     edge_speed_idx: 1,
@@ -201,8 +206,10 @@ pub struct TrayFlags {
     pub fix_case: bool,
     /// 当前静音断句门槛（秒；0 = 不断句）。
     pub silence_sec: u32,
-    /// 悬浮显示方式：0=关 1=细条 2=悬浮球 3=边缘光。**互斥** —— 一次只显示一个。
+    /// 悬浮显示方式：0=关 1=细条 2=悬浮球 3=边缘光 4=流光光晕。**互斥** —— 一次只显示一个。
     pub overlay_mode: usize,
+    /// 流光光晕配色：0=电光蓝 1=天青水色 2=蓝紫极光 3=Siri 4=彩虹。
+    pub halo_tint: usize,
     /// 边缘光颜色：0=白 1=彩虹 2=暖橙 3=青蓝 4=极光。
     pub edge_tint: usize,
     /// 边缘光带宽/亮度/速度当前档位(0..2),用来在子菜单里打勾。
@@ -758,6 +765,7 @@ unsafe fn show_menu(hwnd: isize) {
         silence_sec: 15,
         overlay_mode: 0,
         edge_tint: 0,
+        halo_tint: 0,
         // 默认档:中带宽 / 中亮度 / 中速度(与 overlay 的默认值一致)
         edge_spread_idx: 1,
         edge_peak_idx: 1,
@@ -778,12 +786,13 @@ unsafe fn show_menu(hwnd: isize) {
     let ctxv = wide("显示偏置提示");
     let lead = wide("前面自动加空格");
     let trail = wide("后面自动加空格");
-    // 悬浮显示方式：三选一互斥（用户要求"一次最多只能显示一个或者完全不显示"）
-    let modes: [&str; 4] = [
+    // 悬浮显示方式：五选一互斥（用户要求"一次最多只能显示一个或者完全不显示"）
+    let modes: [&str; 5] = [
         "不显示",
         "细条（只显示文字）",
         "悬浮球（录音波形）",
         "屏幕边缘光（录音时微亮）",
+        "流光光晕（柔波环绕）",
     ];
     let ovl_title = wide(&format!(
         "悬浮显示（当前：{}）",
@@ -830,6 +839,22 @@ unsafe fn show_menu(hwnd: isize) {
             let l = wide(name);
             let checked = if i == f.overlay_mode { MF_CHECKED } else { 0 };
             AppendMenuW(ovl_menu, MF_STRING | checked, ID_OVERLAY_BASE + i, l.as_ptr());
+        }
+        // 流光光晕配色：切到流光光晕时立即用它，也可先改色再预览
+        let halo_tints: [&str; 5] = ["电光蓝（默认）", "天青水色", "蓝紫极光", "Siri 绚烂", "流光彩虹"];
+        let halo_title = wide(&format!(
+            "流光光晕配色（当前：{}）",
+            halo_tints.get(f.halo_tint).copied().unwrap_or("电光蓝（默认）")
+        ));
+        let halo_menu = CreatePopupMenu();
+        if halo_menu != 0 {
+            for (i, name) in halo_tints.iter().enumerate() {
+                let l = wide(name);
+                let checked = if i == f.halo_tint { MF_CHECKED } else { 0 };
+                AppendMenuW(halo_menu, MF_STRING | checked, ID_HALO_TINT_BASE + i, l.as_ptr());
+            }
+            AppendMenuW(ovl_menu, MF_SEPARATOR, 0, sep.as_ptr());
+            AppendMenuW(ovl_menu, MF_STRING | MF_POPUP, halo_menu as usize, halo_title.as_ptr());
         }
         // 边缘光颜色：只在选了边缘光时才有意义，但一直显示（切过去就能立刻改）
         let tints: [&str; 5] = ["白光", "彩虹光", "暖橙光", "青蓝光", "极光（青紫）"];
@@ -988,8 +1013,11 @@ fn queue_toggle(id: usize) {
         ID_AUTOSTART => Some(TrayToggle::AutoStart),
         ID_RELEASE_KEYS => Some(TrayToggle::ReleaseKeys),
         ID_UNDO_LAST => Some(TrayToggle::UndoLast),
-        _ if id >= ID_OVERLAY_BASE && id < ID_OVERLAY_BASE + 4 => {
+        _ if id >= ID_OVERLAY_BASE && id < ID_OVERLAY_BASE + 5 => {
             Some(TrayToggle::SetOverlayMode(id - ID_OVERLAY_BASE))
+        }
+        _ if id >= ID_HALO_TINT_BASE && id < ID_HALO_TINT_BASE + 5 => {
+            Some(TrayToggle::SetHaloTint(id - ID_HALO_TINT_BASE))
         }
         _ if id >= ID_EDGE_TINT_BASE && id < ID_EDGE_TINT_BASE + 5 => {
             Some(TrayToggle::SetEdgeTint(id - ID_EDGE_TINT_BASE))

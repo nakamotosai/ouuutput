@@ -19,5 +19,6 @@ pub mod overlay;
 pub mod pebrel;
 pub mod single;
 pub mod tray;
+pub mod tray_menu;
 pub mod tsf;
 pub mod wav;

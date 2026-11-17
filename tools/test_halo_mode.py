@@ -19,18 +19,22 @@ def conf_value(path, key):
 def main():
     exe = next((REPO / d / "ouuutput.exe" for d in DIRS if (REPO / d / "ouuutput.exe").exists()), None)
     assert exe, "FAIL: 找不到 ouuutput.exe"
-    cfg_out = subprocess.check_output([str(exe), "config", "--overlay-mode", "halo"], cwd=str(REPO), text=True, encoding="utf-8")
-    assert all(k in cfg_out for k in ("流光光晕", "模糊 52px", "波峰 33px", "波谷 12px")), cfg_out
-    print("[PASS] ouuutput config --overlay-mode halo 默认参数输出正确")
-
     conf, bak = REPO / "ouuutput.conf", REPO / "ouuutput.conf.halotest.bak"
     had_conf = conf.exists()
-    shutil.copy2(conf, bak) if had_conf else conf.write_text("", encoding="utf-8")
     d = hdesk.open_desktop(DESKTOP)
     saved_ns = os.environ.get("OUUUTPUT_SINGLE_NS")
     hp = hpt = None
     epid = fails = 0
     try:
+        if had_conf:
+            shutil.copy2(conf, bak)
+            clean = re.sub(r"(?m)^\s*(halo_blur|halo_peak|halo_valley|halo_speed|halo_opacity|halo_tint)\s*=.*\n?", "", conf.read_text(encoding="utf-8"))
+            conf.write_text(clean, encoding="utf-8")
+        else:
+            conf.write_text("", encoding="utf-8")
+        cfg_out = subprocess.check_output([str(exe), "config", "--overlay-mode", "halo"], cwd=str(REPO), text=True, encoding="utf-8")
+        assert all(k in cfg_out for k in ("流光光晕", "模糊 52px", "波峰 33px", "波谷 12px")), cfg_out
+        print("[PASS] ouuutput config --overlay-mode halo 默认参数输出正确")
         os.environ["OUUUTPUT_SINGLE_NS"] = NS
         hp, hpt, epid = hdesk.launch(str(exe), "run", DESKTOP)
         tray_hwnd, t0 = None, time.time()
@@ -46,7 +50,13 @@ def main():
             (382, "halo_tint", "violet", "配色 → 蓝紫极光"),
             (383, "halo_tint", "siri", "配色 → Siri 绚烂"),
             (384, "halo_tint", "rainbow", "配色 → 流光彩虹"),
+            (385, "halo_tint", "cyberpunk", "配色 → 赛博霓虹"),
+            (386, "halo_tint", "emerald", "配色 → 翡翠幽光"),
+            (387, "halo_tint", "sunset", "配色 → 落日熔金"),
             (380, "halo_tint", "blue", "配色 → 电光蓝（默认）"),
+            (392, "halo_blur", "86", "范围 → 宽广(blur=86)"),
+            (397, "halo_speed", "0.95", "流速 → 快(0.95x)"),
+            (402, "halo_opacity", "0.98", "浓淡 → 浓(0.98)"),
         ]:
             hdesk.u32.SendMessageW(tray_hwnd, WM_COMMAND, cmd_id, 0)
             got, deadline = None, time.time() + 5.0

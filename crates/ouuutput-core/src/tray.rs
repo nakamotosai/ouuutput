@@ -9,11 +9,11 @@
 //! 图标是自己按像素画的（3x3 超采样成 32x32 带 alpha 的麦克风），不依赖任何外部资源。
 //! 线程模型与 overlay 一致：独立线程持隐藏窗口 + 消息循环，主线程只读它的请求。
 
+use std::collections::VecDeque;
 use std::ptr;
 use std::sync::mpsc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::Duration;
-
 use crate::hotkey::{DispatchMessageW, GetMessageW, Msg, TranslateMessage};
 
 pub const TRAY_CLASS: &str = "OuuutputTrayWnd";
@@ -25,8 +25,6 @@ const WM_RBUTTONUP: u32 = 0x0205;
 const WM_LBUTTONUP: u32 = 0x0202;
 const WM_CONTEXTMENU: u32 = 0x007B;
 const WM_COMMAND: u32 = 0x0111;
-const WM_NULL: u32 = 0x0000;
-
 const NIM_ADD: u32 = 0;
 const NIM_MODIFY: u32 = 1;
 const NIM_DELETE: u32 = 2;
@@ -36,46 +34,53 @@ const NIF_ICON: u32 = 0x02;
 const NIF_TIP: u32 = 0x04;
 const NIF_INFO: u32 = 0x10;
 
-const MF_STRING: u32 = 0x0000;
-const MF_GRAYED: u32 = 0x0001;
-const MF_CHECKED: u32 = 0x0008;
-const MF_SEPARATOR: u32 = 0x0800;
-const MF_POPUP: u32 = 0x0010;
-const TPM_RIGHTBUTTON: u32 = 0x0002;
-const TPM_RETURNCMD: u32 = 0x0100;
-
-const ID_STATUS: usize = 1;
-const ID_EXIT: usize = 2;
-const ID_PUNCT_SPACE: usize = 10;
-const ID_MERGE_TERMS: usize = 11;
-const ID_CTX_BIAS: usize = 12;
-const ID_CTX_VERBOSE: usize = 13;
-const ID_LEADING_SPACE: usize = 14;
-const ID_FIX_CASE: usize = 15;
+pub(crate) const ID_EXIT: usize = 2;
+pub(crate) const ID_PUNCT_SPACE: usize = 10;
+pub(crate) const ID_MERGE_TERMS: usize = 11;
+pub(crate) const ID_CTX_BIAS: usize = 12;
+pub(crate) const ID_CTX_VERBOSE: usize = 13;
+pub(crate) const ID_LEADING_SPACE: usize = 14;
+pub(crate) const ID_FIX_CASE: usize = 15;
 /// 句尾补一个空格(和 ID_LEADING_SPACE 成对:一个管前面、一个管后面)
-const ID_TRAILING_SPACE: usize = 16;
+pub(crate) const ID_TRAILING_SPACE: usize = 16;
 /// 静音断句子菜单的基址（5/10/15/30/不断句）
-const ID_SILENCE_BASE: usize = 200;
-/// 把隐藏的控制台再叫出来（双击启动时控制台是自动收起的）
-const ID_SHOW_CONSOLE: usize = 17;
+pub(crate) const ID_SILENCE_BASE: usize = 200;
+pub(crate) const SILENCE_CHOICES: [u32; 5] = [5, 10, 15, 30, 0];
+/// 查看运行日志（隐藏控制台后改为 ShellExecuteW 打开当天日志文件）
+pub(crate) const ID_SHOW_CONSOLE: usize = 17;
 /// 开机自启开关（写 HKCU\...\Run）
-const ID_AUTOSTART: usize = 18;
-/// 悬浮显示方式子菜单：关 / 细条 / 悬浮球 / 边缘光 / 流光光晕（五选一，互斥）
-const ID_OVERLAY_BASE: usize = 300;
-/// 边缘光颜色子菜单基址（white/rainbow/amber/cyan/aurora）
-const ID_EDGE_TINT_BASE: usize = 320;
-/// 边缘光**带宽**子菜单基址(细/中/宽)
-const ID_EDGE_SPREAD_BASE: usize = 340;
-/// 边缘光**亮度**子菜单基址(淡/中/亮)
-const ID_EDGE_PEAK_BASE: usize = 350;
-/// 边缘光**速度**子菜单基址(慢/中/快)
-const ID_EDGE_SPEED_BASE: usize = 360;
-/// 边缘光**重绘帧率**子菜单基址(60fps / 30fps 省电)
-const ID_EDGE_FPS_BASE: usize = 370;
-/// 流光光晕颜色子菜单基址（blue/cyan/violet/siri/rainbow）
-const ID_HALO_TINT_BASE: usize = 380;
-
-/// 带宽/亮度/速度的预置档位。
+pub(crate) const ID_AUTOSTART: usize = 18;
+/// 悬浮显示方式：关 / 悬浮声波 / 纯白流体圆环 / 流光光晕（细条 1 与 边缘光 3 已停用注释）
+pub(crate) const ID_OVERLAY_BASE: usize = 300;
+pub(crate) const ID_EDGE_TINT_BASE: usize = 320;
+/// 边缘光**带宽**基址(细/中/宽)
+pub(crate) const ID_EDGE_SPREAD_BASE: usize = 340;
+/// 边缘光**亮度**基址(淡/中/亮)
+pub(crate) const ID_EDGE_PEAK_BASE: usize = 350;
+/// 边缘光**速度**基址(慢/中/快)
+pub(crate) const ID_EDGE_SPEED_BASE: usize = 360;
+/// 边缘光**重绘帧率**基址(60fps / 30fps 省电)
+pub(crate) const ID_EDGE_FPS_BASE: usize = 370;
+/// 流光光晕颜色基址（blue/cyan/violet/siri/rainbow/cyberpunk/emerald/sunset，共 8 项）
+pub(crate) const ID_HALO_TINT_BASE: usize = 380;
+/// 流光光晕**范围**基址（紧凑/标准/宽广）
+pub(crate) const ID_HALO_SPREAD_BASE: usize = 390;
+/// 流光光晕**流速**基址（缓/中/快）
+pub(crate) const ID_HALO_SPEED_BASE: usize = 395;
+/// 流光光晕**浓淡**基址（轻/中/浓）
+pub(crate) const ID_HALO_OPACITY_BASE: usize = 400;
+/// 悬浮声波 / 白环归位按钮
+pub(crate) const ID_ORB_RESET: usize = 415;
+/// 悬浮声波大小预设基址（0=小, 1=中, 2=大）
+pub(crate) const ID_ORB_SIZE_BASE: usize = 420;
+/// 纯白流体圆环大小预设基址（0=小, 1=中, 2=大）
+pub(crate) const ID_RING_SIZE_BASE: usize = 430;
+pub const INDICATOR_SIZE_NAMES: [&str; 3] = ["小", "中", "大"];
+pub const INDICATOR_SIZE_CONF: [&str; 3] = ["small", "medium", "large"];
+/// 纯白流体圆环灵敏度预设基址（0=低, 1=中, 2=高）
+pub(crate) const ID_RING_SENS_BASE: usize = 440;
+pub const RING_SENS_NAMES: [&str; 3] = ["低", "中", "高"];
+pub const RING_SENS_CONF: [&str; 3] = ["low", "medium", "high"];
 ///
 /// 为什么给三档而不是让用户填数字:托盘里没有输入框,而这三档覆盖了
 /// "几乎看不见 / 刚好 / 很显眼"的实际需求;真要精确值就走配置项。
@@ -89,23 +94,30 @@ pub const EDGE_SPEED_NAMES: [&str; 3] = ["慢", "中", "快"];
 pub const EDGE_SPREAD_CONF: [&str; 3] = ["40", "56", "76"];
 pub const EDGE_PEAK_CONF: [&str; 3] = ["0.28", "0.42", "0.62"];
 pub const EDGE_SPEED_CONF: [&str; 3] = ["0.6", "1.0", "1.8"];
-/// 边缘光重绘帧率(两档;实测 60fps 自身吃 0.578 核、30fps 吃 0.255 核 —— 省 56%)。
+/// 边缘光/流光重绘帧率(两档;实测 60fps 自身吃 0.578 核、30fps 吃 0.255 核 —— 省 56%)。
 pub const EDGE_FPS_CHOICES: [u32; 2] = [60, 30];
 pub const EDGE_FPS_NAMES: [&str; 2] = ["60fps(默认,最滑)", "30fps(省电,省一半绘制)"];
 pub const EDGE_FPS_CONF: [&str; 2] = ["60", "30"];
-/// 释放卡住的修饰键（键盘失灵时自救）
-const ID_RELEASE_KEYS: usize = 19;
-/// T5.2 收回上一句。是**动作**不是开关:不落配置,只发一次请求。
-const ID_UNDO_LAST: usize = 20;
-/// 「重启输入法」—— 重新拉起自己(读最新的 exe / 最新的 sidecar),旧实例由新实例接管退出。
-///
-/// 为什么必须在托盘里:用户不知道 `start.bat` / exe 在哪,也不该知道。"改完就得重启"
-/// 这件事只能落在**唯一看得见的入口**上,否则每次都要找人从命令行踢一脚。
-/// 它是**动作**不是开关:不落配置、不排队等主循环 —— 见 `queue_toggle` 里的说明。
-const ID_RESTART: usize = 21;
-/// 热键子菜单的基址：ID_HOTKEY_BASE + 序号。
-/// 用连续 id 而不是给每个键写死常量 —— 以后加热键只改候选表，不用动命令行常量。
-const ID_HOTKEY_BASE: usize = 100;
+/// 流光光晕范围/流速/浓淡三档预置：(blur_radius, peak_thickness, valley_thickness)。
+pub const HALO_SPREAD_CHOICES: [(f32, f32, f32); 3] = [
+    (28.0, 20.0, 8.0),
+    (52.0, 33.0, 12.0),
+    (86.0, 54.0, 20.0),
+];
+pub const HALO_SPREAD_SHORT: [&str; 3] = ["紧凑", "标准", "宽广"];
+pub const HALO_BLUR_CONF: [&str; 3] = ["28", "52", "86"];
+pub const HALO_PEAK_CONF: [&str; 3] = ["20", "33", "54"];
+pub const HALO_VALLEY_CONF: [&str; 3] = ["8", "12", "20"];
+pub const HALO_SPEED_CHOICES: [f32; 3] = [0.28, 0.50, 0.95];
+pub const HALO_SPEED_NAMES: [&str; 3] = ["缓", "中", "快"];
+pub const HALO_SPEED_CONF: [&str; 3] = ["0.28", "0.5", "0.95"];
+pub const HALO_OPACITY_CHOICES: [f32; 3] = [0.52, 0.80, 0.98];
+pub const HALO_OPACITY_NAMES: [&str; 3] = ["轻", "中", "浓"];
+pub const HALO_OPACITY_CONF: [&str; 3] = ["0.52", "0.8", "0.98"];
+pub(crate) const ID_RELEASE_KEYS: usize = 19;
+pub(crate) const ID_UNDO_LAST: usize = 20;
+pub(crate) const ID_RESTART: usize = 21;
+pub(crate) const ID_HOTKEY_BASE: usize = 100;
 
 /// 托盘菜单里可以点的开关。
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -134,10 +146,19 @@ pub enum TrayToggle {
     UndoLast,
     /// 开机自启开关
     AutoStart,
-    /// 悬浮显示方式：0=关 1=细条 2=悬浮球 3=边缘光 4=流光光晕
+    /// 悬浮显示方式：0=关 2=悬浮声波 4=流光光晕 5=纯白流体圆环（1=细条 与 3=边缘光 已注释停用）
     SetOverlayMode(usize),
-    /// 流光光晕配色：0=电光蓝 1=天青水色 2=蓝紫极光 3=Siri 4=彩虹
+    /// 悬浮声波大小（0=小 1=中 2=大）
+    SetOrbSize(usize),
+    /// 纯白流体圆环大小（0=小 1=中 2=大）
+    SetRingSize(usize),
+    /// 纯白流体圆环灵敏度（0=低 1=中 2=高）
+    SetRingSens(usize),
+    /// 流光光晕配色：0..7（电光蓝/天青水色/蓝紫极光/Siri/彩虹/赛博霓虹/翡翠幽光/落日熔金）
     SetHaloTint(usize),
+    SetHaloSpread(usize),
+    SetHaloSpeed(usize),
+    SetHaloOpacity(usize),
     /// 边缘光颜色：0=白 1=彩虹 2=暖橙 3=青蓝 4=极光
     SetEdgeTint(usize),
     /// 边缘光带宽/亮度/速度:各三档(下标见 `EDGE_*_CHOICES`)
@@ -148,6 +169,8 @@ pub enum TrayToggle {
     SetEdgeFps(usize),
     /// 释放卡住的修饰键（键盘失灵时自救）
     ReleaseKeys,
+    /// 重置悬浮声波位置到默认任务栏上方居中
+    ResetOrbPos,
 }
 
 /// 热键候选表 —— 托盘「换热键」子菜单就照这个列。
@@ -164,8 +187,8 @@ pub const HOTKEY_CANDIDATES: &[(&str, &str)] = &[
     ("f10", "F10"),
 ];
 
-/// 主循环每拍读一次：托盘点了哪个开关。
-static PENDING: std::sync::Mutex<Option<TrayToggle>> = std::sync::Mutex::new(None);
+/// 主循环每拍读一次：托盘点击排队队列（VecDeque 防快速连击丢事件）。
+static PENDING: std::sync::Mutex<VecDeque<TrayToggle>> = std::sync::Mutex::new(VecDeque::new());
 /// 托盘图标的数据块 —— 必须留着：Explorer 重启后要拿同一份数据重新 NIM_ADD。
 static TRAY_NID: std::sync::Mutex<Option<NotifyIconDataW>> = std::sync::Mutex::new(None);
 /// Explorer 重启时广播的消息 id（RegisterWindowMessageW 的返回值；0 = 没注册成功）。
@@ -181,8 +204,14 @@ static FLAGS: std::sync::Mutex<TrayFlags> = std::sync::Mutex::new(TrayFlags {
     fix_case: true,
     silence_sec: 15,
     overlay_mode: 0,
-    edge_tint: 0,
     halo_tint: 0,
+    orb_size_idx: 1,
+    ring_size_idx: 1,
+    ring_sens_idx: 1,
+    halo_spread_idx: 1,
+    halo_speed_idx: 1,
+    halo_opacity_idx: 1,
+    edge_tint: 0,
     edge_spread_idx: 1,
     edge_peak_idx: 1,
     edge_speed_idx: 1,
@@ -190,7 +219,6 @@ static FLAGS: std::sync::Mutex<TrayFlags> = std::sync::Mutex::new(TrayFlags {
     hotkey: "rightctrl",
     autostart: false,
 });
-
 /// 托盘要显示的开关状态。
 #[derive(Clone, Copy)]
 pub struct TrayFlags {
@@ -206,11 +234,20 @@ pub struct TrayFlags {
     pub fix_case: bool,
     /// 当前静音断句门槛（秒；0 = 不断句）。
     pub silence_sec: u32,
-    /// 悬浮显示方式：0=关 1=细条 2=悬浮球 3=边缘光 4=流光光晕。**互斥** —— 一次只显示一个。
+    /// 悬浮显示方式：0=关 2=悬浮声波 4=流光光晕 5=纯白流体圆环（1=细条 与 3=边缘光 已注释停用）
     pub overlay_mode: usize,
-    /// 流光光晕配色：0=电光蓝 1=天青水色 2=蓝紫极光 3=Siri 4=彩虹。
+    /// 流光光晕配色：0..7
     pub halo_tint: usize,
-    /// 边缘光颜色：0=白 1=彩虹 2=暖橙 3=青蓝 4=极光。
+    /// 悬浮声波大小档位(0=小 1=中 2=大)
+    pub orb_size_idx: usize,
+    /// 纯白流体圆环大小档位(0=小 1=中 2=大)
+    pub ring_size_idx: usize,
+    /// 纯白流体圆环灵敏度档位(0=低 1=中 2=高)
+    pub ring_sens_idx: usize,
+    /// 流光光晕范围/流速/浓淡当前档位(0..2)
+    pub halo_spread_idx: usize,
+    pub halo_speed_idx: usize,
+    pub halo_opacity_idx: usize,
     pub edge_tint: usize,
     /// 边缘光带宽/亮度/速度当前档位(0..2),用来在子菜单里打勾。
     pub edge_spread_idx: usize,
@@ -235,25 +272,48 @@ pub fn set_flags(f: TrayFlags) {
     if let Ok(mut g) = FLAGS.lock() {
         *g = f;
     }
+    crate::tray_menu::notify_refresh();
 }
 
-/// 菜单里那行标题（带版本号）。
-static TITLE: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+pub(crate) fn snapshot_flags() -> TrayFlags {
+    FLAGS.lock().map(|g| *g).unwrap_or(TrayFlags {
+        punct_to_space: false,
+        merge_terms: true,
+        ctx_bias: true,
+        ctx_verbose: false,
+        leading_space: true,
+        trailing_space: true,
+        fix_case: true,
+        silence_sec: 15,
+        overlay_mode: 0,
+        edge_tint: 0,
+        halo_tint: 0,
+        orb_size_idx: 1,
+        ring_size_idx: 1,
+        ring_sens_idx: 1,
+        halo_spread_idx: 1,
+        halo_speed_idx: 1,
+        halo_opacity_idx: 1,
+        edge_spread_idx: 1,
+        edge_peak_idx: 1,
+        edge_speed_idx: 1,
+        edge_fps_idx: 0,
+        hotkey: "rightctrl",
+        autostart: false,
+    })
+}
 
-/// 设置托盘的悬停提示与菜单标题（带版本号 —— 用户要看得出跑的是哪版）。
+/// 设置托盘的悬停提示（带版本号与当前热键）。
 pub fn set_title(t: &str) {
-    if let Ok(mut g) = TITLE.lock() {
-        *g = t.to_string();
+    if let Ok(mut g) = TRAY_NID.lock() {
+        if let Some(nid) = g.as_mut() {
+            set_fixed(&mut nid.sz_tip, t);
+            if ICON_OK.load(Ordering::Relaxed) {
+                nid.u_flags = NIF_TIP;
+                unsafe { Shell_NotifyIconW(NIM_MODIFY, nid); }
+            }
+        }
     }
-}
-
-fn title_now() -> String {
-    TITLE
-        .lock()
-        .map(|g| g.clone())
-        .unwrap_or_default()
-        .trim()
-        .to_string()
 }
 
 /// 把热键配置写法翻成人话（托盘菜单标题用）。
@@ -280,9 +340,8 @@ pub fn key_label_of(conf: &str) -> &'static str {
 
 /// 取走一次托盘开关点击（主循环用；没有就返回 None）。
 pub fn take_toggle() -> Option<TrayToggle> {
-    PENDING.lock().ok().and_then(|mut g| g.take())
+    PENDING.lock().ok().and_then(|mut g| g.pop_front())
 }
-
 /// 托盘窗口回调里记录「用户点了退出」。
 static EXIT_REQUESTED: AtomicBool = AtomicBool::new(false);
 /// 需要在退出时唤醒的主线程（热键消息循环所在线程）。
@@ -380,12 +439,6 @@ extern "system" {
     ) -> isize;
     fn DestroyWindow(hwnd: isize) -> i32;
     fn DefWindowProcW(hwnd: isize, msg: u32, wp: usize, lp: isize) -> isize;
-    fn CreatePopupMenu() -> isize;
-    fn DestroyMenu(menu: isize) -> i32;
-    fn AppendMenuW(menu: isize, flags: u32, id: usize, item: *const u16) -> i32;
-    fn TrackPopupMenu(menu: isize, flags: u32, x: i32, y: i32, reserved: i32, hwnd: isize, rect: isize) -> i32;
-    fn SetForegroundWindow(hwnd: isize) -> i32;
-    fn GetCursorPos(pt: *mut Point) -> i32;
     fn PostMessageW(hwnd: isize, msg: u32, wp: usize, lp: isize) -> i32;
     fn PostQuitMessage(code: i32);
     fn PostThreadMessageW(thread: u32, msg: u32, wp: usize, lp: isize) -> i32;
@@ -427,13 +480,6 @@ extern "system" {
     fn CreateBitmap(width: i32, height: i32, planes: u32, bits_per_pel: u32, bits: *const u8) -> isize;
     fn CreateIconIndirect(info: *const IconInfo) -> isize;
     fn DeleteObject(obj: isize) -> i32;
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Default)]
-struct Point {
-    x: i32,
-    y: i32,
 }
 
 fn wide(s: &str) -> Vec<u16> {
@@ -720,21 +766,13 @@ unsafe extern "system" fn wnd_proc(hwnd: isize, msg: u32, wp: usize, lp: isize) 
             // 传统版本的托盘回调：lParam 就是鼠标消息
             let m = lp as u32 & 0xFFFF;
             if m == WM_RBUTTONUP || m == WM_CONTEXTMENU || m == WM_LBUTTONUP {
-                show_menu(hwnd);
+                crate::tray_menu::toggle_or_show();
             }
             0
         }
         WM_COMMAND => {
-            // 菜单项两条来路都要认：
-            //   1) TrackPopupMenu 带 TPM_RETURNCMD 时，命令是**返回值**（见 show_menu 末尾）；
-            //   2) 不带 RETURNCMD 时（以及外部/脚本发 WM_COMMAND 时），命令走 WM_COMMAND。
-            // 只认其中一条会让开关在某些路径下静默失效。
             let id = wp & 0xFFFF;
-            if id == ID_EXIT {
-                request_exit();
-            } else {
-                queue_toggle(id);
-            }
+            trigger_action(id);
             0
         }
         WM_CLOSE => {
@@ -742,6 +780,7 @@ unsafe extern "system" fn wnd_proc(hwnd: isize, msg: u32, wp: usize, lp: isize) 
             0
         }
         WM_DESTROY => {
+            crate::tray_menu::destroy();
             PostQuitMessage(0);
             0
         }
@@ -749,205 +788,13 @@ unsafe extern "system" fn wnd_proc(hwnd: isize, msg: u32, wp: usize, lp: isize) 
     }
 }
 
-unsafe fn show_menu(hwnd: isize) {
-    let menu = CreatePopupMenu();
-    if menu == 0 {
-        return;
-    }
-    let f = FLAGS.lock().map(|g| *g).unwrap_or(TrayFlags {
-        punct_to_space: false,
-        merge_terms: true,
-        ctx_bias: true,
-        ctx_verbose: false,
-        leading_space: true,
-        trailing_space: true,
-        fix_case: true,
-        silence_sec: 15,
-        overlay_mode: 0,
-        edge_tint: 0,
-        halo_tint: 0,
-        // 默认档:中带宽 / 中亮度 / 中速度(与 overlay 的默认值一致)
-        edge_spread_idx: 1,
-        edge_peak_idx: 1,
-        edge_speed_idx: 1,
-        edge_fps_idx: 0,
-        hotkey: "rightctrl",
-        autostart: false,
-    });
-    let tick = |on: bool| if on { MF_CHECKED } else { 0 };
-
-    // 第一行是标题（带版本号），灰色不可点 —— 用户一眼看出跑的是哪版。
-    let t = title_now();
-    let title = wide(if t.is_empty() { "ouuutput 输入法" } else { &t });
-    let sep = wide("");
-    let punct = wide("标点转空格（保留问号）");
-    let merge = wide("英文连写（R E A → REA）");
-    let ctx = wide("上下文偏置（记住刚打的词）");
-    let ctxv = wide("显示偏置提示");
-    let lead = wide("前面自动加空格");
-    let trail = wide("后面自动加空格");
-    // 悬浮显示方式：五选一互斥（用户要求"一次最多只能显示一个或者完全不显示"）
-    let modes: [&str; 5] = [
-        "不显示",
-        "细条（只显示文字）",
-        "悬浮球（录音波形）",
-        "屏幕边缘光（录音时微亮）",
-        "流光光晕（柔波环绕）",
-    ];
-    let ovl_title = wide(&format!(
-        "悬浮显示（当前：{}）",
-        modes.get(f.overlay_mode).copied().unwrap_or("不显示")
-    ));
-    let ovl_menu = CreatePopupMenu();
-    let fixc = wide("英文默认小写");
-    let showcon = wide("显示日志窗口");
-    let autost = wide("开机自启");
-    let sil_title = wide(&format!(
-        "静音断句（当前：{}）",
-        if f.silence_sec == 0 { "不断句".to_string() } else { format!("{} 秒", f.silence_sec) }
-    ));
-    let sil_menu = CreatePopupMenu();
-    const SILENCE_CHOICES: [u32; 5] = [5, 10, 15, 30, 0];
-    let exit = wide("退出 ouuutput 输入法");
-    // 热键子菜单：标题写当前键，展开是候选表
-    let hk_title = wide(&format!("换热键（当前：{}）", key_label_of(f.hotkey)));
-    let hk_menu = CreatePopupMenu();
-
-    AppendMenuW(menu, MF_STRING | MF_GRAYED, ID_STATUS, title.as_ptr());
-    AppendMenuW(menu, MF_SEPARATOR, 0, sep.as_ptr());
-    // 热键放最上面 —— 这是用户最常改的一项
-    if hk_menu != 0 {
-        for (i, (conf, label)) in HOTKEY_CANDIDATES.iter().enumerate() {
-            let l = wide(label);
-            let checked = if *conf == f.hotkey { MF_CHECKED } else { 0 };
-            AppendMenuW(hk_menu, MF_STRING | checked, ID_HOTKEY_BASE + i, l.as_ptr());
-        }
-        // MF_POPUP = 0x0010：这一项挂一个子菜单，不是命令 id
-        AppendMenuW(menu, MF_STRING | MF_POPUP, hk_menu as usize, hk_title.as_ptr());
-    }
-    AppendMenuW(menu, MF_SEPARATOR, 0, sep.as_ptr());
-    AppendMenuW(menu, MF_STRING | tick(f.punct_to_space), ID_PUNCT_SPACE, punct.as_ptr());
-    AppendMenuW(menu, MF_STRING | tick(f.merge_terms), ID_MERGE_TERMS, merge.as_ptr());
-    AppendMenuW(menu, MF_STRING | tick(f.ctx_bias), ID_CTX_BIAS, ctx.as_ptr());
-    AppendMenuW(menu, MF_STRING | tick(f.ctx_verbose), ID_CTX_VERBOSE, ctxv.as_ptr());
-    // 前置空格放最后一组 —— 它是"上屏形态"类开关,和上面三个"文本内容"类分开
-    AppendMenuW(menu, MF_STRING | tick(f.leading_space), ID_LEADING_SPACE, lead.as_ptr());
-    // 句尾空格紧跟其后:一个管前面、一个管后面,放一起最好找
-    AppendMenuW(menu, MF_STRING | tick(f.trailing_space), ID_TRAILING_SPACE, trail.as_ptr());
-    if ovl_menu != 0 {
-        for (i, name) in modes.iter().enumerate() {
-            let l = wide(name);
-            let checked = if i == f.overlay_mode { MF_CHECKED } else { 0 };
-            AppendMenuW(ovl_menu, MF_STRING | checked, ID_OVERLAY_BASE + i, l.as_ptr());
-        }
-        // 流光光晕配色：切到流光光晕时立即用它，也可先改色再预览
-        let halo_tints: [&str; 5] = ["电光蓝（默认）", "天青水色", "蓝紫极光", "Siri 绚烂", "流光彩虹"];
-        let halo_title = wide(&format!(
-            "流光光晕配色（当前：{}）",
-            halo_tints.get(f.halo_tint).copied().unwrap_or("电光蓝（默认）")
-        ));
-        let halo_menu = CreatePopupMenu();
-        if halo_menu != 0 {
-            for (i, name) in halo_tints.iter().enumerate() {
-                let l = wide(name);
-                let checked = if i == f.halo_tint { MF_CHECKED } else { 0 };
-                AppendMenuW(halo_menu, MF_STRING | checked, ID_HALO_TINT_BASE + i, l.as_ptr());
-            }
-            AppendMenuW(ovl_menu, MF_SEPARATOR, 0, sep.as_ptr());
-            AppendMenuW(ovl_menu, MF_STRING | MF_POPUP, halo_menu as usize, halo_title.as_ptr());
-        }
-        // 边缘光颜色：只在选了边缘光时才有意义，但一直显示（切过去就能立刻改）
-        let tints: [&str; 5] = ["白光", "彩虹光", "暖橙光", "青蓝光", "极光（青紫）"];
-        let tint_title = wide(&format!(
-            "边缘光颜色（当前：{}）",
-            tints.get(f.edge_tint).copied().unwrap_or("白光")
-        ));
-        let tint_menu = CreatePopupMenu();
-        if tint_menu != 0 {
-            for (i, name) in tints.iter().enumerate() {
-                let l = wide(name);
-                let checked = if i == f.edge_tint { MF_CHECKED } else { 0 };
-                AppendMenuW(tint_menu, MF_STRING | checked, ID_EDGE_TINT_BASE + i, l.as_ptr());
-            }
-            AppendMenuW(ovl_menu, MF_SEPARATOR, 0, sep.as_ptr());
-            AppendMenuW(ovl_menu, MF_STRING | MF_POPUP, tint_menu as usize, tint_title.as_ptr());
-        }
-        // 带宽/亮度/速度:各三档,勾在当前档上
-        let submenus: [(usize, &[&str], usize, &str); 3] = [
-            (ID_EDGE_SPREAD_BASE, &EDGE_SPREAD_NAMES, f.edge_spread_idx, "边缘光带宽"),
-            (ID_EDGE_PEAK_BASE, &EDGE_PEAK_NAMES, f.edge_peak_idx, "边缘光亮度"),
-            (ID_EDGE_SPEED_BASE, &EDGE_SPEED_NAMES, f.edge_speed_idx, "边缘光速度"),
-            // 帧率:**只有两档**,所以单列(三档那张表是 `[&str; 3]`,塞不进来)
-        ];
-        for (base, names, cur, title) in submenus {
-            let sub = CreatePopupMenu();
-            if sub == 0 {
-                continue;
-            }
-            for (i, name) in names.iter().enumerate() {
-                let l = wide(name);
-                let checked = if i == cur { MF_CHECKED } else { 0 };
-                AppendMenuW(sub, MF_STRING | checked, base + i, l.as_ptr());
-            }
-            let t = wide(&format!(
-                "{title}(当前:{})",
-                names.get(cur).copied().unwrap_or("-")
-            ));
-            AppendMenuW(ovl_menu, MF_STRING | MF_POPUP, sub as usize, t.as_ptr());
-        }
-        // 帧率单列:上面那张表是 `[&str; 3]`,这里是两档
-        {
-            let sub = CreatePopupMenu();
-            if sub != 0 {
-                for (i, name) in EDGE_FPS_NAMES.iter().enumerate() {
-                    let l = wide(name);
-                    let checked = if i == f.edge_fps_idx { MF_CHECKED } else { 0 };
-                    AppendMenuW(sub, MF_STRING | checked, ID_EDGE_FPS_BASE + i, l.as_ptr());
-                }
-                let t = wide(&format!(
-                    "边缘光帧率(当前:{})",
-                    EDGE_FPS_NAMES.get(f.edge_fps_idx).copied().unwrap_or("-")
-                ));
-                AppendMenuW(ovl_menu, MF_STRING | MF_POPUP, sub as usize, t.as_ptr());
-            }
-        }
-        AppendMenuW(menu, MF_STRING | MF_POPUP, ovl_menu as usize, ovl_title.as_ptr());
-    }
-    AppendMenuW(menu, MF_STRING | tick(f.fix_case), ID_FIX_CASE, fixc.as_ptr());
-    AppendMenuW(menu, MF_STRING | tick(f.autostart), ID_AUTOSTART, autost.as_ptr());
-    if sil_menu != 0 {
-        for (i, sec) in SILENCE_CHOICES.iter().enumerate() {
-            let text = if *sec == 0 { "不断句（只认松手）".to_string() } else { format!("{sec} 秒") };
-            let l = wide(&text);
-            let checked = if *sec == f.silence_sec { MF_CHECKED } else { 0 };
-            AppendMenuW(sil_menu, MF_STRING | checked, ID_SILENCE_BASE + i, l.as_ptr());
-        }
-        AppendMenuW(menu, MF_STRING | MF_POPUP, sil_menu as usize, sil_title.as_ptr());
-    }
-    AppendMenuW(menu, MF_SEPARATOR, 0, sep.as_ptr());
-    AppendMenuW(menu, MF_STRING, ID_RELEASE_KEYS, wide("释放卡住的键（键盘失灵时用）").as_ptr());
-    // 「重启输入法」放在退出**上面**:两个都是"让程序动一下"的动作项,
-    // 但重启是可逆的、退出不是 —— 把可逆的放前面,误点代价小。
-    AppendMenuW(menu, MF_STRING, ID_RESTART, wide("重启输入法（读最新版）").as_ptr());
-    AppendMenuW(menu, MF_STRING, ID_SHOW_CONSOLE, showcon.as_ptr());
-    AppendMenuW(menu, MF_STRING, ID_EXIT, exit.as_ptr());
-
-    let mut pt = Point { x: 0, y: 0 };
-    GetCursorPos(&mut pt);
-    // 这两步是托盘菜单的标准姿势：不先 SetForegroundWindow 菜单不会自己消失
-    SetForegroundWindow(hwnd);
-    let cmd = TrackPopupMenu(menu, TPM_RIGHTBUTTON | TPM_RETURNCMD, pt.x, pt.y, 0, hwnd, 0);
-    PostMessageW(hwnd, WM_NULL, 0, 0);
-    DestroyMenu(menu);
-    let id = cmd as usize;
+pub(crate) fn trigger_action(id: usize) {
     if id == ID_EXIT {
-        request_exit();
-        return;
+        unsafe { request_exit(); }
+    } else {
+        queue_toggle(id);
     }
-    // 开关点击：记下来，由主循环取走并落盘。托盘线程不自己改状态（免得多线程打架）。
-    queue_toggle(id);
 }
-
 /// 把菜单 id 翻成开关并排队（主循环取走）。
 ///
 /// 特例:「重启输入法」是**当场执行**的动作,不排队。原因:
@@ -988,16 +835,16 @@ fn queue_toggle(id: usize) {
         return;
     }
     // 热键候选是连续 id：ID_HOTKEY_BASE + 序号
-    const SILENCE_CHOICES: [u32; 5] = [5, 10, 15, 30, 0];
+    // 热键与静音断句候选均复用 module-level SILENCE_CHOICES
     if id >= ID_SILENCE_BASE && id < ID_SILENCE_BASE + SILENCE_CHOICES.len() {
         if let Ok(mut g) = PENDING.lock() {
-            *g = Some(TrayToggle::SetSilence(SILENCE_CHOICES[id - ID_SILENCE_BASE]));
+            g.push_back(TrayToggle::SetSilence(SILENCE_CHOICES[id - ID_SILENCE_BASE]));
         }
         return;
     }
     if id >= ID_HOTKEY_BASE && id < ID_HOTKEY_BASE + HOTKEY_CANDIDATES.len() {
         if let Ok(mut g) = PENDING.lock() {
-            *g = Some(TrayToggle::SetHotkey(id - ID_HOTKEY_BASE));
+            g.push_back(TrayToggle::SetHotkey(id - ID_HOTKEY_BASE));
         }
         return;
     }
@@ -1013,11 +860,30 @@ fn queue_toggle(id: usize) {
         ID_AUTOSTART => Some(TrayToggle::AutoStart),
         ID_RELEASE_KEYS => Some(TrayToggle::ReleaseKeys),
         ID_UNDO_LAST => Some(TrayToggle::UndoLast),
-        _ if id >= ID_OVERLAY_BASE && id < ID_OVERLAY_BASE + 5 => {
+        ID_ORB_RESET => Some(TrayToggle::ResetOrbPos),
+        _ if id >= ID_OVERLAY_BASE && id <= ID_OVERLAY_BASE + 5 => {
             Some(TrayToggle::SetOverlayMode(id - ID_OVERLAY_BASE))
         }
-        _ if id >= ID_HALO_TINT_BASE && id < ID_HALO_TINT_BASE + 5 => {
+        _ if id >= ID_ORB_SIZE_BASE && id < ID_ORB_SIZE_BASE + 3 => {
+            Some(TrayToggle::SetOrbSize(id - ID_ORB_SIZE_BASE))
+        }
+        _ if id >= ID_RING_SIZE_BASE && id < ID_RING_SIZE_BASE + 3 => {
+            Some(TrayToggle::SetRingSize(id - ID_RING_SIZE_BASE))
+        }
+        _ if id >= ID_RING_SENS_BASE && id < ID_RING_SENS_BASE + 3 => {
+            Some(TrayToggle::SetRingSens(id - ID_RING_SENS_BASE))
+        }
+        _ if id >= ID_HALO_TINT_BASE && id < ID_HALO_TINT_BASE + 8 => {
             Some(TrayToggle::SetHaloTint(id - ID_HALO_TINT_BASE))
+        }
+        _ if id >= ID_HALO_SPREAD_BASE && id < ID_HALO_SPREAD_BASE + 3 => {
+            Some(TrayToggle::SetHaloSpread(id - ID_HALO_SPREAD_BASE))
+        }
+        _ if id >= ID_HALO_SPEED_BASE && id < ID_HALO_SPEED_BASE + 3 => {
+            Some(TrayToggle::SetHaloSpeed(id - ID_HALO_SPEED_BASE))
+        }
+        _ if id >= ID_HALO_OPACITY_BASE && id < ID_HALO_OPACITY_BASE + 3 => {
+            Some(TrayToggle::SetHaloOpacity(id - ID_HALO_OPACITY_BASE))
         }
         _ if id >= ID_EDGE_TINT_BASE && id < ID_EDGE_TINT_BASE + 5 => {
             Some(TrayToggle::SetEdgeTint(id - ID_EDGE_TINT_BASE))
@@ -1038,7 +904,7 @@ fn queue_toggle(id: usize) {
     };
     if let Some(t) = t {
         if let Ok(mut g) = PENDING.lock() {
-            *g = Some(t);
+            g.push_back(t);
         }
     }
 }

@@ -59,7 +59,7 @@ fn usage() {
          ouuutput replay <in.wav> [--dry-run]      把 WAV 走完整流水线（离线验收）\n  \
          ouuutput render \"一段文字\"                只跑 ITN + 标点 + 润色\n  \
          ouuutput config                           打印当前生效的配置\n  \
-         ouuutput overlay-demo [--mode bar|orb|edge|halo] [--seconds N]  预览悬浮显示\n  \
+         ouuutput overlay-demo [--mode orb|ring|halo] [--seconds N]  预览悬浮显示\n  \
          ouuutput run [options]                    常驻：按住热键说话，松开上屏\n  \
          ouuutput release-keys                     释放卡住的修饰键（键盘失灵时用）\n  \
          ouuutput selftest inject <text>           只测上屏路径\n\n\
@@ -78,7 +78,7 @@ fn usage() {
          --hold                 按住说话（默认）\n  \
          --device <NAME>        指定麦克风（默认系统默认设备）\n  \
          --no-stream            不逐字上屏：流式阶段一个字都不打，松手定稿时整句一次性打字\n  \
-         --overlay-mode <M>     悬浮显示：off / bar（细条）/ orb（悬浮球）/ edge（屏幕边缘光）/ halo（流光光晕）\n  \
+         --overlay-mode <M>     悬浮显示：off / orb（悬浮声波）/ ring（纯白流体圆环）/ halo（流光光晕）\n  \
          --no-tray              关掉系统托盘图标\n  \
          --show-console         不自动收起控制台窗口\n  \
          --lazy-mic             按需开麦（默认常驻预热，避免吞掉开头）\n  \
@@ -104,9 +104,9 @@ fn usage() {
                                  run + --feed 可离线演练完整链路,不打扰当前窗口)\n\n\
          CONFIG:\n  \
          仓库根下的 {CONF_NAME} 可写日常偏好(key = value),命令行参数优先级更高。\n  \
-         可用键:hotkey / model_dir / punct_dir / hotwords / punct / itn / beam / toggle / tray /\n  hide_console / \
-         overlay_mode / halo_tint / stream / lazy_mic / max_backspace / throttle_ms / threads / device /\n         \
-         tail_ms / tail_max_ms / tail_quiet_ms / tail_pad_ms / tail_rms /\n         \
+        可用键:hotkey / model_dir / punct_dir / hotwords / punct / itn / beam / toggle / tray /\n  hide_console / \
+        ring_sens / \
+        overlay_mode / halo_tint / orb_size / ring_size / orb_pos / stream / lazy_mic / max_backspace / throttle_ms / threads / device /\n         \
          punct_mode / merge_terms / fix_case / ctx_bias / ime_wmchar /\n         \
          twopass / twopass_model_dir / focus_guard",
         env!("CARGO_PKG_VERSION")
@@ -782,11 +782,12 @@ fn overlay_mode() -> u32 {
     OVERLAY_MODE.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-/// 当前边缘光颜色的菜单序号（0=白 1=彩虹 2=暖橙 3=青蓝 4=极光）。
-/// 调完边缘光参数后"亮一下"给即时反馈(和换颜色一样)。
-///
-/// 为什么要有:带宽/亮度/速度改完如果什么都不发生,用户根本看不出改没改 —— 边缘光
-/// 平时只在录音时亮。这里主动切到边缘光并亮 1.5 秒。
+/// 单调递增的预览代号：连续切换配色或滑档时让上一条计时线程作废，
+/// 保证最后一次点击至少稳定展示 2.6 秒再淡出，不再刚亮一下就消失。
+static PREVIEW_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+const PREVIEW_HOLD_MS: u64 = 2600;
+
+/// 调完边缘光参数或颜色后立刻亮 2.6 秒演示再淡出（多击不互相打断）。
 fn edge_demo() {
     use std::sync::atomic::Ordering as O;
     if overlay_mode() != 3 {
@@ -797,17 +798,20 @@ fn edge_demo() {
             }
         }
     }
+    let gen = PREVIEW_GEN.fetch_add(1, O::Relaxed) + 1;
     if let Some(o) = ov_get() {
         o.show_edge();
         let ov2 = o.clone();
         std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(1500));
-            ov2.fade_edge();
+            std::thread::sleep(Duration::from_millis(PREVIEW_HOLD_MS));
+            if PREVIEW_GEN.load(O::Relaxed) == gen {
+                ov2.fade_edge();
+            }
         });
     }
 }
 
-/// 调完流光光晕参数或配色后立刻亮 1.8 秒演示一下再淡出。
+/// 调完流光光晕参数或配色后立刻亮 2.6 秒演示再淡出（多击不互相打断）。
 fn halo_demo() {
     use std::sync::atomic::Ordering as O;
     if overlay_mode() != 4 {
@@ -816,16 +820,105 @@ fn halo_demo() {
             ov_put(Overlay::ensure());
         }
     }
+    let gen = PREVIEW_GEN.fetch_add(1, O::Relaxed) + 1;
     if let Some(o) = ov_get() {
         o.show_halo();
         let ov2 = o.clone();
         std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(1800));
-            ov2.fade_halo();
+            std::thread::sleep(Duration::from_millis(PREVIEW_HOLD_MS));
+            if PREVIEW_GEN.load(O::Relaxed) == gen {
+                ov2.fade_halo();
+            }
         });
     }
 }
 
+/// 切换/改配色时预览悬浮声波 2.6 秒，之后平滑淡出（支持期间鼠标左键拖动定位）。
+fn orb_demo() {
+    use std::sync::atomic::Ordering as O;
+    if overlay_mode() != 2 {
+        OVERLAY_MODE.store(2, O::Relaxed);
+        if ov_get().is_none() {
+            ov_put(Overlay::ensure());
+        }
+    }
+    let gen = PREVIEW_GEN.fetch_add(1, O::Relaxed) + 1;
+    if let Some(o) = ov_get() {
+        o.preview_orb(PREVIEW_HOLD_MS);
+        let ov2 = o.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(PREVIEW_HOLD_MS));
+            if PREVIEW_GEN.load(O::Relaxed) == gen {
+                ov2.fade_orb();
+            }
+        });
+    }
+}
+
+/// 切换/改大小时预览纯白流体圆环 2.6 秒，之后平滑淡出（支持期间鼠标左键拖动定位）。
+fn ring_demo() {
+    use std::sync::atomic::Ordering as O;
+    if overlay_mode() != 5 {
+        OVERLAY_MODE.store(5, O::Relaxed);
+        if ov_get().is_none() {
+            ov_put(Overlay::ensure());
+        }
+    }
+    let gen = PREVIEW_GEN.fetch_add(1, O::Relaxed) + 1;
+    if let Some(o) = ov_get() {
+        o.preview_ring(PREVIEW_HOLD_MS);
+        let ov2 = o.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(PREVIEW_HOLD_MS));
+            if PREVIEW_GEN.load(O::Relaxed) == gen {
+                ov2.fade_ring();
+            }
+        });
+    }
+}
+
+fn parse_size_preset(raw: Option<String>) -> ouuutput_core::overlay::IndicatorSize {
+    use ouuutput_core::overlay::IndicatorSize;
+    match raw.as_deref().map(|s| s.trim().to_ascii_lowercase()).as_deref() {
+        Some("small" | "s" | "0" | "小") => IndicatorSize::Small,
+        Some("large" | "l" | "2" | "大") => IndicatorSize::Large,
+        _ => IndicatorSize::Medium,
+    }
+}
+fn parse_ring_sens(raw: Option<String>) -> ouuutput_core::overlay::RingSens {
+    use ouuutput_core::overlay::RingSens;
+    match raw.as_deref().map(|s| s.trim().to_ascii_lowercase()).as_deref() {
+        Some("low" | "l" | "0" | "低") => RingSens::Low,
+        Some("high" | "h" | "2" | "高") => RingSens::High,
+        _ => RingSens::Medium,
+    }
+}
+fn halo_param_idxs() -> (usize, usize, usize) {
+    use ouuutput_core::tray as T;
+    let nearest = |vals: &[f32], cur: f32| -> usize {
+        let mut best = 0;
+        let mut best_d = f32::MAX;
+        for (i, v) in vals.iter().enumerate() {
+            let d = (v - cur).abs();
+            if d < best_d {
+                best_d = d;
+                best = i;
+            }
+        }
+        best
+    };
+    let cfg = ouuutput_core::overlay::halo_config();
+    let blurs: [f32; 3] = [
+        T::HALO_SPREAD_CHOICES[0].0,
+        T::HALO_SPREAD_CHOICES[1].0,
+        T::HALO_SPREAD_CHOICES[2].0,
+    ];
+    (
+        nearest(&blurs, cfg.blur_radius),
+        nearest(&T::HALO_SPEED_CHOICES, cfg.flow_speed),
+        nearest(&T::HALO_OPACITY_CHOICES, cfg.opacity),
+    )
+}
 fn halo_cfg_of(a: &Args) -> Result<GlowConfig> {
     Ok(GlowConfig {
         blur_radius: a.f("halo_blur", "--halo-blur", GLOW_CONFIG.blur_radius as f64)? as f32,
@@ -913,7 +1006,7 @@ fn ov_get() -> Option<Overlay> {
     OV_SLOT.lock().ok().and_then(|g| g.clone())
 }
 
-/// 进入录音状态：按当前模式显示悬浮球或屏幕边缘光。
+/// 进入录音状态：按当前模式显示悬浮声波、纯白流体圆环或流光光晕（细条与边缘光已注释停用）。
 fn ov_record_start(_o: &Option<Overlay>) {
     if !overlay_enabled() {
         return;
@@ -921,23 +1014,26 @@ fn ov_record_start(_o: &Option<Overlay>) {
     if let Some(ov) = ov_get() {
         match overlay_mode() {
             2 => ov.show_orb(),
-            3 => ov.show_edge(),
+            // 3 => ov.show_edge(), // 边缘光已注释停用
             4 => ov.show_halo(),
-            // 细条模式：录音时先清空（还没有文字）
-            _ => ov.show_bar(""),
+            5 => ov.show_ring(),
+            // 1 => ov.show_bar(""), // 细条已注释停用
+            _ => {}
         }
     }
 }
 
-/// 录音结束（松手）：边缘光/流光光晕淡出，球/细条保持到出文字。
+/// 录音结束（松手）：当前活跃的视觉反馈平滑淡出。
 fn ov_record_end(_o: &Option<Overlay>) {
     if !overlay_enabled() {
         return;
     }
     if let Some(ov) = ov_get() {
         match overlay_mode() {
-            3 => ov.fade_edge(),
+            2 => ov.fade_orb(),
+            // 3 => ov.fade_edge(), // 边缘光已注释停用
             4 => ov.fade_halo(),
+            5 => ov.fade_ring(),
             _ => {}
         }
     }
@@ -1419,22 +1515,22 @@ fn cmd_config(a: &Args, root: &Path) -> Result<()> {
         }
     );
     let om = match a.s("overlay_mode", "--overlay-mode").as_deref() {
-        Some("bar") => 1,
+        // Some("bar") => 1,  // 细条已注释停用
         Some("orb") => 2,
-        Some("edge") => 3,
+        // Some("edge") => 3, // 边缘光已注释停用
         Some("halo") => 4,
+        Some("ring") => 5,
         Some("off") => 0,
-        _ => {
-            if a.b("overlay", "--overlay", "--no-overlay", false) { 1 } else { 3 }
-        }
+        _ => 4,
     };
     println!(
         "悬浮显示  : {}",
         match om {
-            1 => "细条（只显示文字，半透明）",
-            2 => "悬浮球（录音波形）",
-            3 => "屏幕边缘光",
+            // 1 => "细条（只显示文字，半透明）",
+            2 => "悬浮声波（流体弦波）",
+            // 3 => "屏幕边缘光",
             4 => "流光光晕（柔波环绕）",
+            5 => "纯白流体圆环（透明中心）",
             _ => "关",
         }
     );
@@ -3024,16 +3120,13 @@ fn cmd_run(_args: &[String], a: &Args) -> Result<()> {
     // 悬浮显示方式：配置里 `overlay` 兼容老写法（true=细条、false=关），
     // 新增 `overlay_mode = bar|orb|edge|off` 表达四态。
     let overlay_mode_init: u32 = match a.s("overlay_mode", "--overlay-mode").as_deref() {
-        Some("bar") => 1,
+        // Some("bar") => 1,  // 细条已注释停用
         Some("orb") => 2,
-        Some("edge") => 3,
+        // Some("edge") => 3, // 边缘光已注释停用
         Some("halo") => 4,
+        Some("ring") => 5,
         Some("off") => 0,
-        _ => {
-            // 默认就是**屏幕边缘光**（用户选定的方案：不占中央、最不干扰）。
-            // 老写法 overlay = false 仍然能关掉。
-            if a.b("overlay", "--overlay", "--no-overlay", false) { 1 } else { 3 }
-        }
+        _ => 4,
     };
     let overlay_on = overlay_mode_init != 0;
     // 当前热键的配置写法（托盘打勾用）。命令行/conf 传什么就记什么；
@@ -3071,6 +3164,15 @@ fn cmd_run(_args: &[String], a: &Args) -> Result<()> {
         let h_tint = HaloTint::from_conf(&a.s("halo_tint", "--halo-tint").unwrap_or_else(|| "blue".into()));
         ouuutput_core::overlay::set_halo_tint(h_tint);
         ouuutput_core::overlay::set_halo_config(halo_cfg_of(a)?);
+        ouuutput_core::overlay::set_orb_size(parse_size_preset(a.s("orb_size", "--orb-size")));
+        ouuutput_core::overlay::set_ring_size(parse_size_preset(a.s("ring_size", "--ring-size")));
+        ouuutput_core::overlay::set_ring_sens(parse_ring_sens(a.s("ring_sens", "--ring-sens")));
+        if let Some(raw_pos) = a.s("orb_pos", "--orb-pos") {
+            let parsed = raw_pos
+                .split_once(',')
+                .and_then(|(xs, ys)| Some((xs.trim().parse::<i32>().ok()?, ys.trim().parse::<i32>().ok()?)));
+            ouuutput_core::overlay::set_orb_pos(parsed);
+        }
         tray::set_flags(tray::TrayFlags {
             punct_to_space: c.punct_mode == "space",
             merge_terms: c.merge_terms,
@@ -3083,10 +3185,16 @@ fn cmd_run(_args: &[String], a: &Args) -> Result<()> {
             overlay_mode: overlay_mode_init as usize,
             edge_tint: tint_code_of(),
             halo_tint: halo_tint_code_of(),
-                edge_spread_idx: edge_param_idxs().0,
-                edge_peak_idx: edge_param_idxs().1,
-                edge_speed_idx: edge_param_idxs().2,
-                edge_fps_idx: edge_fps_idx(),
+            orb_size_idx: ouuutput_core::overlay::orb_size_preset().idx(),
+            ring_size_idx: ouuutput_core::overlay::ring_size_preset().idx(),
+            ring_sens_idx: ouuutput_core::overlay::ring_sens_preset().idx(),
+            halo_spread_idx: halo_param_idxs().0,
+            halo_speed_idx: halo_param_idxs().1,
+            halo_opacity_idx: halo_param_idxs().2,
+            edge_spread_idx: edge_param_idxs().0,
+            edge_peak_idx: edge_param_idxs().1,
+            edge_speed_idx: edge_param_idxs().2,
+            edge_fps_idx: edge_fps_idx(),
             hotkey: cur_hotkey_conf,
             autostart: autostart::is_enabled(),
         });
@@ -3145,9 +3253,11 @@ fn cmd_run(_args: &[String], a: &Args) -> Result<()> {
                 println!(
                     "[ouuutput] 悬浮显示: {}",
                     match overlay_mode_init {
-                        2 => "悬浮球",
-                        3 => "屏幕边缘光",
-                        _ => "细条",
+                        2 => "悬浮声波",
+                        // 3 => "屏幕边缘光",
+                        4 => "流光光晕",
+                        5 => "纯白流体圆环",
+                        _ => "已开启",
                     }
                 );
             }
@@ -3332,6 +3442,7 @@ fn cmd_run(_args: &[String], a: &Args) -> Result<()> {
     // 托盘菜单点出来的开关：主线程每拍收一次 —— 落盘（下次启动仍生效）+ 推给托盘画勾 +
     // 通知 sidecar 立刻改用新策略（不用重开程序）。
     let conf_path = find_root().join(CONF_NAME);
+    let conf_path_drag = conf_path.clone();
     let side_tx = side_ctl_tx;
     // 返回值里的 `human` 是**归自己所有**的 String(以前这里用 `Box::leak` 把
     // 两个动态串变 &'static str,于是常驻进程每点一次菜单就永久泄漏一点 ——
@@ -3393,10 +3504,16 @@ fn cmd_run(_args: &[String], a: &Args) -> Result<()> {
                     overlay_mode: overlay_mode() as usize,
                     edge_tint: tint_code_of(),
                     halo_tint: halo_tint_code_of(),
-                edge_spread_idx: edge_param_idxs().0,
-                edge_peak_idx: edge_param_idxs().1,
-                edge_speed_idx: edge_param_idxs().2,
-                edge_fps_idx: edge_fps_idx(),
+                    orb_size_idx: ouuutput_core::overlay::orb_size_preset().idx(),
+                    ring_size_idx: ouuutput_core::overlay::ring_size_preset().idx(),
+                    ring_sens_idx: ouuutput_core::overlay::ring_sens_preset().idx(),
+                    halo_spread_idx: halo_param_idxs().0,
+                    halo_speed_idx: halo_param_idxs().1,
+                    halo_opacity_idx: halo_param_idxs().2,
+                    edge_spread_idx: edge_param_idxs().0,
+                    edge_peak_idx: edge_param_idxs().1,
+                    edge_speed_idx: edge_param_idxs().2,
+                    edge_fps_idx: edge_fps_idx(),
                     hotkey: CUR_HOTKEY.lock().map(|g| *g).unwrap_or("rightctrl"),
                     autostart: autostart::is_enabled(),
                 });
@@ -3424,27 +3541,15 @@ fn cmd_run(_args: &[String], a: &Args) -> Result<()> {
                         }
                     }
                     // 立刻给一个可见的回执，让用户知道点的这一下生效了
-                    if let Some(o) = ov_get() {
+                    if ov_get().is_some() {
                         if m == 2 {
-                            o.show_orb();
-                            // 静音时波形是平的，先垫几个点让它看起来是"活的"
-                            for i in 0..9 {
-                                o.push_level(0.25 + 0.15 * ((i % 3) as f32));
-                            }
-                        } else if m == 3 {
-                            // 边缘光：亮 2 秒再淡出，让用户看见效果
-                            o.show_edge();
-                            let ov2 = o.clone();
-                            std::thread::spawn(move || {
-                                std::thread::sleep(Duration::from_millis(2000));
-                                ov2.fade_edge();
-                            });
+                            orb_demo();
+                        } else if m == 5 {
+                            ring_demo();
                         } else if m == 4 {
                             halo_demo();
-                        } else {
-                            o.show_bar("悬浮条已开 · 说话时显示文字");
-                            o.hide_after(2500);
                         }
+                        // 细条(1)与边缘光(3)已按需求停用
                     }
                 } else {
                     if let Some(o) = ov_get() {
@@ -3452,14 +3557,15 @@ fn cmd_run(_args: &[String], a: &Args) -> Result<()> {
                     }
                 }
                 let human = match m {
-                    1 => "悬浮显示:细条".to_string(),
-                    2 => "悬浮显示:悬浮球".to_string(),
-                    3 => "悬浮显示:屏幕边缘光".to_string(),
+                    // 1 => "悬浮显示:细条".to_string(),
+                    2 => "悬浮显示:悬浮声波".to_string(),
+                    // 3 => "悬浮显示:屏幕边缘光".to_string(),
                     4 => "悬浮显示:流光光晕".to_string(),
+                    5 => "悬浮显示:纯白流体圆环".to_string(),
                     _ => "悬浮显示:不显示".to_string(),
                 };
                 ("overlay_mode",
-                 match m { 1 => "bar", 2 => "orb", 3 => "edge", 4 => "halo", _ => "off" },
+                 match m { 2 => "orb", 4 => "halo", 5 => "ring", _ => "off" },
                  human)
             }
             tray::TrayToggle::LeadingSpace => {
@@ -3530,10 +3636,16 @@ fn cmd_run(_args: &[String], a: &Args) -> Result<()> {
                     overlay_mode: overlay_mode() as usize,
                     edge_tint: tint_code_of(),
                     halo_tint: halo_tint_code_of(),
-                edge_spread_idx: edge_param_idxs().0,
-                edge_peak_idx: edge_param_idxs().1,
-                edge_speed_idx: edge_param_idxs().2,
-                edge_fps_idx: edge_fps_idx(),
+                    orb_size_idx: ouuutput_core::overlay::orb_size_preset().idx(),
+                    ring_size_idx: ouuutput_core::overlay::ring_size_preset().idx(),
+                    ring_sens_idx: ouuutput_core::overlay::ring_sens_preset().idx(),
+                    halo_spread_idx: halo_param_idxs().0,
+                    halo_speed_idx: halo_param_idxs().1,
+                    halo_opacity_idx: halo_param_idxs().2,
+                    edge_spread_idx: edge_param_idxs().0,
+                    edge_peak_idx: edge_param_idxs().1,
+                    edge_speed_idx: edge_param_idxs().2,
+                    edge_fps_idx: edge_fps_idx(),
                     hotkey: CUR_HOTKEY.lock().map(|g| *g).unwrap_or("rightctrl"),
                     autostart: autostart::is_enabled(),
                 });
@@ -3551,34 +3663,135 @@ fn cmd_run(_args: &[String], a: &Args) -> Result<()> {
                     return;
                 };
                 ouuutput_core::overlay::set_edge_tint(t);
-                // 立刻演示一下：切到边缘光并亮 1.5 秒
-                if overlay_mode() != 3 {
-                    OVERLAY_MODE.store(3, O::Relaxed);
-                    if ov_get().is_none() {
-                        if let Some(o) = Overlay::ensure() {
-                            ov_put(Some(o));
-                        }
-                    }
-                }
-                if let Some(o) = ov_get() {
-                    o.show_edge();
-                    let ov2 = o.clone();
-                    std::thread::spawn(move || {
-                        std::thread::sleep(Duration::from_millis(1500));
-                        ov2.fade_edge();
-                    });
-                }
+                edge_demo();
                 println!("[ouuutput] 边缘光颜色 → {}", t.label());
                 ("edge_tint", t.as_conf(),
                  format!("边缘光颜色:{}", t.label()))
             }
             tray::TrayToggle::SetHaloTint(i) => {
-                let tints = [HaloTint::Blue, HaloTint::Cyan, HaloTint::Violet, HaloTint::Siri, HaloTint::Rainbow];
+                let tints = [
+                    HaloTint::Blue,
+                    HaloTint::Cyan,
+                    HaloTint::Violet,
+                    HaloTint::Siri,
+                    HaloTint::Rainbow,
+                    HaloTint::Cyberpunk,
+                    HaloTint::Emerald,
+                    HaloTint::Sunset,
+                ];
                 let Some(t) = tints.get(i).copied() else { return; };
                 ouuutput_core::overlay::set_halo_tint(t);
+                if overlay_mode() == 2 {
+                    orb_demo();
+                    println!("[ouuutput] 悬浮声波配色 → {}", t.label());
+                    ("halo_tint", t.as_conf(), format!("悬浮声波配色:{}", t.label()))
+                } else {
+                    halo_demo();
+                    println!("[ouuutput] 流光光晕配色 → {}", t.label());
+                    ("halo_tint", t.as_conf(), format!("流光光晕配色:{}", t.label()))
+                }
+            }
+            tray::TrayToggle::ResetOrbPos => {
+                ouuutput_core::overlay::reset_orb_pos();
+                let _ = ouuutput_core::overlay::take_orb_pos_dirty();
+                if overlay_mode() == 5 {
+                    ring_demo();
+                    println!("[ouuutput] 纯白流体圆环已归位至任务栏上方居中");
+                    ("orb_pos", "auto", "纯白流体圆环位置:归位".to_string())
+                } else {
+                    orb_demo();
+                    println!("[ouuutput] 悬浮声波已归位至任务栏上方居中");
+                    ("orb_pos", "auto", "悬浮声波位置:归位".to_string())
+                }
+            }
+            tray::TrayToggle::SetOrbSize(i) => {
+                let sz = ouuutput_core::overlay::IndicatorSize::from_idx(i);
+                let idx = sz.idx();
+                ouuutput_core::overlay::set_orb_size(sz);
+                orb_demo();
+                println!("[ouuutput] 悬浮声波大小 → {}", tray::INDICATOR_SIZE_NAMES[idx]);
+                ("orb_size", tray::INDICATOR_SIZE_CONF[idx], format!("悬浮声波大小:{}", tray::INDICATOR_SIZE_NAMES[idx]))
+            }
+            tray::TrayToggle::SetRingSize(i) => {
+                let sz = ouuutput_core::overlay::IndicatorSize::from_idx(i);
+                let idx = sz.idx();
+                ouuutput_core::overlay::set_ring_size(sz);
+                ring_demo();
+                println!("[ouuutput] 纯白流体圆环大小 → {}", tray::INDICATOR_SIZE_NAMES[idx]);
+                ("ring_size", tray::INDICATOR_SIZE_CONF[idx], format!("纯白流体圆环大小:{}", tray::INDICATOR_SIZE_NAMES[idx]))
+            }
+            tray::TrayToggle::SetRingSens(i) => {
+                let sens = ouuutput_core::overlay::RingSens::from_idx(i);
+                let idx = sens.idx();
+                ouuutput_core::overlay::set_ring_sens(sens);
+                ring_demo();
+                println!("[ouuutput] 纯白流体圆环灵敏度 → {}", tray::RING_SENS_NAMES[idx]);
+                ("ring_sens", tray::RING_SENS_CONF[idx], format!("纯白流体圆环灵敏度:{}", tray::RING_SENS_NAMES[idx]))
+            }
+            tray::TrayToggle::SetHaloSpread(i) => {
+                let Some(&(blur, peak, valley)) = tray::HALO_SPREAD_CHOICES.get(i) else {
+                    return;
+                };
+                let mut cfg = ouuutput_core::overlay::halo_config();
+                cfg.blur_radius = blur;
+                cfg.peak_thickness = peak;
+                cfg.valley_thickness = valley;
+                ouuutput_core::overlay::set_halo_config(cfg);
                 halo_demo();
-                println!("[ouuutput] 流光光晕配色 → {}", t.label());
-                ("halo_tint", t.as_conf(), format!("流光光晕配色:{}", t.label()))
+                for (k, v) in [
+                    ("halo_blur", tray::HALO_BLUR_CONF[i]),
+                    ("halo_peak", tray::HALO_PEAK_CONF[i]),
+                    ("halo_valley", tray::HALO_VALLEY_CONF[i]),
+                ] {
+                    if let Err(e) = config::save_key(&conf_path, k, v) {
+                        eprintln!("[ouuutput] 写入 {k} 失败（本次仍生效）: {e}");
+                    }
+                }
+                println!("[ouuutput] 流光范围 → {} (模糊 {blur}px / 波峰 {peak}px / 波谷 {valley}px)", tray::HALO_SPREAD_SHORT[i]);
+                tray::set_flags(tray::TrayFlags {
+                    punct_to_space: PUNCT_SPACE.load(O::Relaxed),
+                    merge_terms: MERGE_TERMS.load(O::Relaxed),
+                    ctx_bias: CTX_BIAS.load(O::Relaxed),
+                    ctx_verbose: VERBOSE_CTX.load(O::Relaxed),
+                    leading_space: LEADING_SPACE.load(O::Relaxed),
+                    trailing_space: TRAILING_SPACE.load(O::Relaxed),
+                    fix_case: FIX_CASE.load(O::Relaxed),
+                    silence_sec: SILENCE_SEC.load(O::Relaxed),
+                    overlay_mode: overlay_mode() as usize,
+                    edge_tint: tint_code_of(),
+                    halo_tint: halo_tint_code_of(),
+                    orb_size_idx: ouuutput_core::overlay::orb_size_preset().idx(),
+                    ring_size_idx: ouuutput_core::overlay::ring_size_preset().idx(),
+                    ring_sens_idx: ouuutput_core::overlay::ring_sens_preset().idx(),
+                    halo_spread_idx: halo_param_idxs().0,
+                    halo_speed_idx: halo_param_idxs().1,
+                    halo_opacity_idx: halo_param_idxs().2,
+                    edge_spread_idx: edge_param_idxs().0,
+                    edge_peak_idx: edge_param_idxs().1,
+                    edge_speed_idx: edge_param_idxs().2,
+                    edge_fps_idx: edge_fps_idx(),
+                    hotkey: CUR_HOTKEY.lock().map(|g| *g).unwrap_or("rightctrl"),
+                    autostart: autostart::is_enabled(),
+                });
+                return;
+            }
+            tray::TrayToggle::SetHaloSpeed(i) => {
+                let Some(&v) = tray::HALO_SPEED_CHOICES.get(i) else { return; };
+                let mut cfg = ouuutput_core::overlay::halo_config();
+                cfg.flow_speed = v;
+                ouuutput_core::overlay::set_halo_config(cfg);
+                halo_demo();
+                println!("[ouuutput] 流光流速 → {} ({v:.2}×)", tray::HALO_SPEED_NAMES[i]);
+                ("halo_speed", tray::HALO_SPEED_CONF[i], format!("流光流速:{:.2}×", v))
+            }
+            tray::TrayToggle::SetHaloOpacity(i) => {
+                let Some(&v) = tray::HALO_OPACITY_CHOICES.get(i) else { return; };
+                let mut cfg = ouuutput_core::overlay::halo_config();
+                cfg.opacity = v;
+                ouuutput_core::overlay::set_halo_config(cfg);
+                halo_demo();
+                println!("[ouuutput] 流光浓淡 → {} ({v:.2})", tray::HALO_OPACITY_NAMES[i]);
+                ("halo_opacity", tray::HALO_OPACITY_CONF[i], format!("流光浓淡:{:.2}", v))
             }
             tray::TrayToggle::SetEdgeSpread(i) => {
                 let Some(px) = tray::EDGE_SPREAD_CHOICES.get(i).copied() else {
@@ -3673,12 +3886,18 @@ fn cmd_run(_args: &[String], a: &Args) -> Result<()> {
             fix_case: FIX_CASE.load(O::Relaxed),
             silence_sec: SILENCE_SEC.load(O::Relaxed),
             overlay_mode: overlay_mode() as usize,
-                    edge_tint: tint_code_of(),
+            edge_tint: tint_code_of(),
             halo_tint: halo_tint_code_of(),
-                edge_spread_idx: edge_param_idxs().0,
-                edge_peak_idx: edge_param_idxs().1,
-                edge_speed_idx: edge_param_idxs().2,
-                edge_fps_idx: edge_fps_idx(),
+            orb_size_idx: ouuutput_core::overlay::orb_size_preset().idx(),
+            ring_size_idx: ouuutput_core::overlay::ring_size_preset().idx(),
+            ring_sens_idx: ouuutput_core::overlay::ring_sens_preset().idx(),
+            halo_spread_idx: halo_param_idxs().0,
+            halo_speed_idx: halo_param_idxs().1,
+            halo_opacity_idx: halo_param_idxs().2,
+            edge_spread_idx: edge_param_idxs().0,
+            edge_peak_idx: edge_param_idxs().1,
+            edge_speed_idx: edge_param_idxs().2,
+            edge_fps_idx: edge_fps_idx(),
             hotkey: CUR_HOTKEY.lock().map(|g| *g).unwrap_or("rightctrl"),
             autostart: autostart::is_enabled(),
         });
@@ -3687,10 +3906,18 @@ fn cmd_run(_args: &[String], a: &Args) -> Result<()> {
     // 50ms 的超时只是"多久检查一次托盘开关",**不是**鼠标事件的等待时间 ——
     // 见 run_message_loop_with_tick 的注释(用 sleep 等消息会让鼠标卡成幻灯片)。
     hotkey::run_message_loop_with_tick(50, || {
-        if let Some(t) = tray::take_toggle() {
+        while let Some(t) = tray::take_toggle() {
             apply_toggle(t);
         }
-        // worker 报上来的事(现在是「sidecar 死了 / 重启了」)顺手弹个托盘气泡:
+        if let Some(dirty_pos) = ouuutput_core::overlay::take_orb_pos_dirty() {
+            let val = match dirty_pos {
+                Some((x, y)) => format!("{x},{y}"),
+                None => "auto".to_string(),
+            };
+            if let Err(e) = config::save_key(&conf_path_drag, "orb_pos", &val) {
+                eprintln!("[ouuutput] 悬浮声波位置写入 ouuutput.conf 失败（本次仍生效）: {e}");
+            }
+        }
         // 隐藏控制台之后,那是唯一**用户看得见**的提示通道(体检报告 §2)。
         while let Ok(msg) = notify_rx.try_recv() {
             if let Some(t) = &tray {
@@ -3720,6 +3947,19 @@ fn cmd_overlay_demo(a: &Args) -> Result<()> {
     let cycles = a.u("cycles", "--cycles", 1)?.max(1);
     let ov = Overlay::start().ok_or_else(|| anyhow::anyhow!("悬浮窗起不来"))?;
     let mode = a.s("mode", "--mode").unwrap_or_else(|| "bar".to_string());
+
+    // 预览也吃大小/灵敏度档:显式给了才覆盖,没给就保持默认(中)。
+    if mode == "ring" || mode == "orb" {
+        if let Some(v) = a.s("orb_size", "--orb-size") {
+            ouuutput_core::overlay::set_orb_size(parse_size_preset(Some(v)));
+        }
+        if let Some(v) = a.s("ring_size", "--ring-size") {
+            ouuutput_core::overlay::set_ring_size(parse_size_preset(Some(v)));
+        }
+        if let Some(v) = a.s("ring_sens", "--ring-sens") {
+            ouuutput_core::overlay::set_ring_sens(parse_ring_sens(Some(v)));
+        }
+    }
 
     // 细条:只显示文字,逐段变长(宽度会变 → 尺寸变化)
     let frames: [&str; 4] = [
@@ -3754,7 +3994,8 @@ fn cmd_overlay_demo(a: &Args) -> Result<()> {
         "sentence" => println!(
             "[ouuutput] overlay-demo: 边缘光→细条 ×{cycles} 轮(一次听写的完整生命周期)"
         ),
-        "orb" => println!("[ouuutput] overlay-demo: 悬浮球(模拟音量,{secs}s)×{cycles} 轮"),
+        "orb" => println!("[ouuutput] overlay-demo: 悬浮声波(模拟音量,{secs}s)×{cycles} 轮"),
+        "ring" => println!("[ouuutput] overlay-demo: 纯白流体圆环(模拟音量,{secs}s)×{cycles} 轮"),
         _ => println!("[ouuutput] overlay-demo: 细条(只显示文字,{secs}s)×{cycles} 轮"),
     }
 
@@ -3801,6 +4042,20 @@ fn cmd_overlay_demo(a: &Args) -> Result<()> {
                     ov.push_level((env * 0.75 + jitter).min(1.0));
                     std::thread::sleep(Duration::from_millis(step));
                 }
+                ov.hide();
+            }
+            "ring" => {
+                ov.show_ring();
+                let step = (secs * 1000 / 60).max(40);
+                for i in 0..60u32 {
+                    let t = i as f32 / 60.0;
+                    let env = (t * std::f32::consts::PI * 3.0).sin().abs();
+                    let jitter = ((i * 7919) % 100) as f32 / 100.0 * 0.22;
+                    ov.push_level((env * 0.78 + jitter).min(1.0));
+                    std::thread::sleep(Duration::from_millis(step));
+                }
+                ov.fade_ring();
+                std::thread::sleep(Duration::from_millis(450));
                 ov.hide();
             }
             _ => {

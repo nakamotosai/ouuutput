@@ -55,8 +55,8 @@ Copy `ouuutput.conf.example` to `ouuutput.conf` (and optionally `hotwords.exampl
   before the caret
 - **Silence-based sentence splitting** (RMS energy timing, not semantic VAD): 5 / 10 / 15 / 30 s
   or off, default **15 s**
-- **Overlay, 4 mutually exclusive modes**: off / thin bar / floating orb with a live level
-  waveform / **screen-edge glow (default)**, with five glow colors
+- **Overlay, 4 mutually exclusive modes**: off / fluid sound-wave orb (3 sizes) / pure-white
+  fluid ring (3 sizes, 3 sensitivity presets) / **streaming halo glow (default)** with 8 colors
 - **Tray-resident**: switch hotkey (including mouse side buttons X1/X2), punctuation-to-space,
   `A P I` → `API` merging, case fix, leading space, autostart — all applied live
 - **Single instance**, autostart, per-session logs, and a `release-keys` rescue command that
@@ -74,7 +74,7 @@ Run `ouuutput run` with no arguments for defaults; `ouuutput --help` lists every
 (`--hotkey`, `--toggle`, `--model-dir`, `--punct-mode`, `--ctx-bias`, `--merge-terms`,
 `--fix-case`, `--rule1`/`--rule2`/`--rule3`, `--throttle-ms`, `--tail-ms`,
 `--tail-quiet-ms`, `--tail-max-ms`, `--tail-pad-ms`, `--tail-rms`, `--overlay-mode`,
-`--edge-tint`, `--log-dir`, `--show-console`, …).
+`--orb-size`, `--ring-size`, `--ring-sens`, `--log-dir`, `--show-console`, ...).
 
 Note: `--no-stream` disables incremental typing — nothing is typed while you speak, and the
 whole sentence is typed in one go when you release the key. The default (streaming) is what

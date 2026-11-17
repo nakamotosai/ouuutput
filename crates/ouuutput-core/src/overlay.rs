@@ -52,13 +52,23 @@ const WM_ERASEBKGND: u32 = 0x0014;
 const WM_TIMER: u32 = 0x0113;
 const WM_DESTROY: u32 = 0x0002;
 const WM_CLOSE: u32 = 0x0010;
+const WM_NCHITTEST: u32 = 0x0084;
+const HTTRANSPARENT: isize = -1;
+const HTCLIENT: isize = 1;
 const WM_MOUSEACTIVATE: u32 = 0x0021;
 const MA_NOACTIVATE: isize = 3;
+const WM_SETCURSOR: u32 = 0x0020;
+const WM_MOUSEMOVE: u32 = 0x0200;
+const WM_LBUTTONDOWN: u32 = 0x0201;
+const WM_LBUTTONUP: u32 = 0x0202;
+const WM_LBUTTONDBLCLK: u32 = 0x0203;
+const WM_CAPTURECHANGED: u32 = 0x0215;
+const CS_DBLCLKS: u32 = 0x0008;
+const GWL_EXSTYLE: i32 = -20;
+const IDC_SIZEALL: usize = 32646;
 
 const OVERLAY_CLASS: &str = "OuuutputOverlayWnd";
 
-/// `SetThreadPriority` 的 THREAD_PRIORITY_BELOW_NORMAL。
-const THREAD_PRIORITY_BELOW_NORMAL: i32 = -1;
 
 /// 当前屏幕的 DPI 缩放系数（1.0 = 96 DPI / 100%）。
 ///
@@ -138,17 +148,16 @@ const BAR_MIN_H: i32 = 44;
 const BAR_CHAR_ASCII: i32 = 10;
 const BAR_CHAR_CJK: i32 = 18;
 
-// ---- 悬浮球（Orb）专用 ----
-/// 球的直径（设计像素）。42 在 225% 缩放下约 95 物理像素，视觉上是个小圆。
-const ORB_D: i32 = 46;
-/// 波形柱数量与几何。
-const ORB_BARS: usize = 9;
-const ORB_BAR_W: i32 = 2;
-const ORB_BAR_GAP: i32 = 1;
-const ORB_BAR_MIN_H: i32 = 2;
-const ORB_BAR_MAX_H: i32 = 18;
-
-// ---- 细条外观 ----
+// ---- 悬浮声波（Orb：无框无外晕的裸流体弦波）与 纯白流体圆环（Ring） ----
+/// 声波画布宽高（设计像素）：小 / 中(默认) / 大。
+const ORB_DIMS: [(i32, i32); 3] = [(112, 30), (146, 38), (190, 48)];
+/// 纯白流体圆环画布宽高（设计像素）：小 / 中(默认) / 大。
+const RING_DIMS: [(i32, i32); 3] = [(42, 42), (58, 58), (80, 80)];
+/// 默认锚点：任务栏顶边上方留出的设计像素间距。
+const ORB_BOTTOM_GAP: i32 = 10;
+/// 自适应底噪归一化下限（仅用于柔和调制流体振幅；显隐完全由是否按住快捷键决定）。
+const ORB_VOICE_THRESH_MIN: f32 = 0.0085;
+const ORB_SILENCE_HOLD_MS: u64 = 380;
 const BAR_RADIUS: i32 = 10;
 const BAR_FONT: f32 = 17.0;
 const BAR_INK: u32 = 0xF2_F5F0E8;
@@ -245,17 +254,11 @@ const EDGE_FLOW_MS: u64 = 8000;
 // ⚠️ 格式是 **0xAARRGGBB**（和 `argb()` 一致）。
 // 早先抄常量时漏了 alpha 通道（写成 0x00RRGGBB），结果整个 HUD 全透明、
 // 屏幕上只剩一层淡淡的阴影 —— 排查了半天才发现是 alpha=0。
-/// 琥珀(边缘光 / 悬浮球用)
-const ACCENT: u32 = 0xFF_FF9A4D;    // 琥珀 rgb(255,154,77)
-// (面板方案自己的底色/描边/文字色 `BG`/`BORDER`/`INK` 与青色 `ACCENT2` 已随该方案删除。)
 
 // 细条要**半透明** —— 用户明确要求「做成半透明的」，而且要能透出下面的字。
 // 88/255 ≈ 35% 不透明：足够压住背景保证可读，又能看见底下的内容。
 const BAR_BG: u32 = 0x88_1E1A16;
 const BAR_BORDER: u32 = 0x22_FFE0C0;
-// 球体用更实一点的底（它小，太透就看不见了）
-const ORB_BG: u32 = 0xC8_1E1A16;
-const ORB_RING: u32 = 0x40_FF9A4D;
 
 #[repr(C)]
 #[derive(Default, Clone, Copy)]
@@ -428,6 +431,34 @@ extern "system" {
         blend: *const BlendFunction,
         flags: u32,
     ) -> i32;
+    fn GetWindowLongW(h: isize, idx: i32) -> i32;
+    fn SetWindowLongW(h: isize, idx: i32, val: i32) -> i32;
+    fn SetCapture(h: isize) -> isize;
+    fn ReleaseCapture() -> i32;
+    fn LoadCursorW(inst: isize, name: usize) -> isize;
+    fn SetCursor(hc: isize) -> isize;
+}
+
+#[link(name = "winmm")]
+extern "system" {
+    fn timeBeginPeriod(period: u32) -> u32;
+    fn timeEndPeriod(period: u32) -> u32;
+}
+
+static HIGH_RES_TIMER: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+fn set_high_res_timer(enable: bool) {
+    let prev = HIGH_RES_TIMER.swap(enable, Ordering::Relaxed);
+    if prev != enable {
+        unsafe {
+            if enable {
+                timeBeginPeriod(1);
+            } else {
+                timeEndPeriod(1);
+            }
+        }
+    }
 }
 
 // ------------------------------------------------------------------ 共享状态
@@ -482,7 +513,7 @@ pub fn label(self) -> &'static str {
 }
 /// 流光光晕（Ego 同款柔和漫射光晕）的配色方案。
 ///
-/// 默认「电光蓝」对齐 Ego Lite 经典蓝色流光；另提供四套常用氛围配色。
+/// 默认「电光蓝」对齐 Ego Lite 经典蓝色流光；另提供七套氛围配色（含赛博霓虹等）。
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 pub enum HaloTint {
     /// 电光蓝（默认）：#007aff / #38bdf8 / #1e40af
@@ -496,6 +527,12 @@ pub enum HaloTint {
     Siri,
     /// 流光彩虹：全色相缓慢流转
     Rainbow,
+    /// 赛博霓虹：#ff1e8a / #00f0ff / #4c1d95（双霓虹巡游）
+    Cyberpunk,
+    /// 翡翠幽光：#10b981 / #6ee7b7 / #065f46
+    Emerald,
+    /// 落日熔金：#f97316 / #fb7185 / #9a3412
+    Sunset,
 }
 
 impl HaloTint {
@@ -505,6 +542,9 @@ impl HaloTint {
             "violet" | "aurora" => HaloTint::Violet,
             "siri" => HaloTint::Siri,
             "rainbow" => HaloTint::Rainbow,
+            "cyberpunk" | "cyber" | "neon" => HaloTint::Cyberpunk,
+            "emerald" | "green" | "mint" => HaloTint::Emerald,
+            "sunset" | "gold" | "amber" => HaloTint::Sunset,
             _ => HaloTint::Blue,
         }
     }
@@ -515,6 +555,9 @@ impl HaloTint {
             HaloTint::Violet => "violet",
             HaloTint::Siri => "siri",
             HaloTint::Rainbow => "rainbow",
+            HaloTint::Cyberpunk => "cyberpunk",
+            HaloTint::Emerald => "emerald",
+            HaloTint::Sunset => "sunset",
         }
     }
     pub fn label(self) -> &'static str {
@@ -524,6 +567,9 @@ impl HaloTint {
             HaloTint::Violet => "蓝紫极光",
             HaloTint::Siri => "Siri 绚烂",
             HaloTint::Rainbow => "流光彩虹",
+            HaloTint::Cyberpunk => "赛博霓虹",
+            HaloTint::Emerald => "翡翠幽光",
+            HaloTint::Sunset => "落日熔金",
         }
     }
     pub fn palette(self) -> ((f32, f32, f32), (f32, f32, f32), (f32, f32, f32)) {
@@ -553,6 +599,21 @@ impl HaloTint {
                 (0.0 / 255.0, 168.0 / 255.0, 255.0 / 255.0),
                 (120.0 / 255.0, 224.0 / 255.0, 255.0 / 255.0),
                 (168.0 / 255.0, 85.0 / 255.0, 247.0 / 255.0),
+            ),
+            HaloTint::Cyberpunk => (
+                (255.0 / 255.0, 30.0 / 255.0, 138.0 / 255.0),
+                (0.0 / 255.0, 240.0 / 255.0, 255.0 / 255.0),
+                (76.0 / 255.0, 29.0 / 255.0, 149.0 / 255.0),
+            ),
+            HaloTint::Emerald => (
+                (16.0 / 255.0, 185.0 / 255.0, 129.0 / 255.0),
+                (110.0 / 255.0, 231.0 / 255.0, 183.0 / 255.0),
+                (6.0 / 255.0, 95.0 / 255.0, 70.0 / 255.0),
+            ),
+            HaloTint::Sunset => (
+                (249.0 / 255.0, 115.0 / 255.0, 22.0 / 255.0),
+                (251.0 / 255.0, 113.0 / 255.0, 133.0 / 255.0),
+                (154.0 / 255.0, 52.0 / 255.0, 18.0 / 255.0),
             ),
         }
     }
@@ -592,16 +653,104 @@ pub const HALO_THICKNESS_MAX: f32 = 90.0;
 /// 为什么是互斥的：两个都画会互相压、抢视线。用户明确要求「一次最多只能显示一个」。
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 pub enum Mode {
-    /// 细条：只显示正文（录音/识别中的文字），半透明，不挡字。
+    /// 细条（已停用注释：仅保留变体供旧测试兼容）
     #[default]
     Bar,
-    /// 圆球：只显示「正在录音」+ 实时声波波形，最小占位。
+    /// 悬浮声波：3 条流体弦波 + 亮白芯丝（无框无外晕）。
     Orb,
-    /// 屏幕边缘光：四边渐亮，录音时呼吸、松手后淡出。
-    /// 完全无遮挡 —— 不占任何中央区域。
+    /// 纯白流体圆环：中心全透明、仅保留一根微微发光并随声音柔和流变的纯白闭环。
+    Ring,
+    /// 屏幕边缘光（已停用注释：仅保留变体供旧测试兼容）
     Edge,
     /// 流光光晕：双层高斯漫射沿屏幕四边波浪式柔和流动（无硬边）。
     Halo,
+}
+
+/// 悬浮声波 / 白环的大小预设（小 / 中 / 大）。
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub enum IndicatorSize {
+    Small,
+    #[default]
+    Medium,
+    Large,
+}
+
+impl IndicatorSize {
+    pub fn from_conf(s: &str) -> IndicatorSize {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "small" | "s" => IndicatorSize::Small,
+            "large" | "l" => IndicatorSize::Large,
+            _ => IndicatorSize::Medium,
+        }
+    }
+    pub fn as_conf(self) -> &'static str {
+        match self {
+            IndicatorSize::Small => "small",
+            IndicatorSize::Medium => "medium",
+            IndicatorSize::Large => "large",
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            IndicatorSize::Small => "小",
+            IndicatorSize::Medium => "中",
+            IndicatorSize::Large => "大",
+        }
+    }
+    pub fn idx(self) -> usize {
+        match self {
+            IndicatorSize::Small => 0,
+            IndicatorSize::Medium => 1,
+            IndicatorSize::Large => 2,
+        }
+    }
+    pub fn from_idx(i: usize) -> IndicatorSize {
+        match i {
+            0 => IndicatorSize::Small,
+            2 => IndicatorSize::Large,
+            _ => IndicatorSize::Medium,
+        }
+    }
+}
+
+/// 纯白流体圆环灵敏度预设（低 / 中 / 高）。
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub enum RingSens {
+    Low,
+    #[default]
+    Medium,
+    High,
+}
+
+impl RingSens {
+    pub fn from_conf(s: &str) -> RingSens {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "low" | "l" | "0" | "低" => RingSens::Low,
+            "high" | "h" | "2" | "高" => RingSens::High,
+            _ => RingSens::Medium,
+        }
+    }
+    pub fn as_conf(self) -> &'static str {
+        match self {
+            RingSens::Low => "low",
+            RingSens::Medium => "medium",
+            RingSens::High => "high",
+        }
+    }
+    pub fn idx(self) -> usize {
+        match self {
+            RingSens::Low => 0,
+            RingSens::Medium => 1,
+            RingSens::High => 2,
+        }
+    }
+    pub fn from_idx(i: usize) -> RingSens {
+        match i {
+            0 => RingSens::Low,
+            2 => RingSens::High,
+            _ => RingSens::Medium,
+        }
+    }
 }
 
 #[derive(Clone, Default)]
@@ -610,19 +759,75 @@ struct State {
     mode: Mode,
     status: String,
     text: String,
-    /// 最近若干帧的归一化音量（0..1），供悬浮球画波形。
-    /// 固定长度环形缓冲的简单版：push 到尾部，超长就 drain 头部。
-    levels: Vec<f32>,
     seq: u64,
     at: Option<(i32, i32)>,
-
-
-/// 边缘光的当前强度（0..1），每帧朝 `edge_target` 缓动。
-    /// 单独存是因为它要**平滑过渡**：松开时不能啪一下消失，要淡出。
+    /// 悬浮声波 / 白环：实时原始音量、自适应底噪/峰值 AGC 与归一化驱动（0..1）。
+    orb_level_raw: f32,
+    orb_level_norm: f32,
+    orb_noise_floor: f32,
+    orb_peak_agc: f32,
+    orb_env: f32,
+    orb_bass: f32,
+    orb_mid: f32,
+    orb_treble: f32,
+    /// 悬浮声波/白环当前不透明度（0..1）：按住快捷键期间淡入并保持可见，松开后平滑淡出。
+    orb_alpha: f32,
+    orb_holding: bool,
+    orb_last_voice: Option<std::time::Instant>,
+    orb_preview_until: Option<std::time::Instant>,
+    orb_fading: bool,
+    /// 边缘光的当前强度（0..1），每帧朝 `edge_target` 缓动。
     edge_level: f32,
-    /// 边缘光的目标强度：录音中 1.0，松手后 0.0。
     edge_target: f32,
     edge_tint: EdgeTint,
+}
+
+/// 用户拖动后的声波位置（设计像素坐标 (x_dp, y_dp)）；None = 默认任务栏上方居中。
+static ORB_POS: OnceLock<Mutex<Option<(i32, i32)>>> = OnceLock::new();
+/// 拖动完成/双击归位后待落盘的新位置（外层 Some 表示有变更，内层 Option 表示坐标或 auto）。
+static ORB_POS_DIRTY: OnceLock<Mutex<Option<Option<(i32, i32)>>>> = OnceLock::new();
+/// 当前帧悬浮声波在屏幕上的物理像素矩形，供鼠标命中/拖动。
+static CURRENT_ORB_RECT: OnceLock<Mutex<Option<Rect>>> = OnceLock::new();
+static ORB_PASS_THROUGH: AtomicBool = AtomicBool::new(true);
+static ORB_LAST_TICK: OnceLock<Mutex<std::time::Instant>> = OnceLock::new();
+
+#[derive(Clone, Copy, Default)]
+struct DragState {
+    active: bool,
+    start_cursor_x: i32,
+    start_cursor_y: i32,
+    start_panel_x: i32,
+    start_panel_y: i32,
+}
+static ORB_DRAG: OnceLock<Mutex<DragState>> = OnceLock::new();
+
+fn orb_pos_slot() -> &'static Mutex<Option<(i32, i32)>> {
+    ORB_POS.get_or_init(|| Mutex::new(None))
+}
+
+fn orb_pos_dirty_slot() -> &'static Mutex<Option<Option<(i32, i32)>>> {
+    ORB_POS_DIRTY.get_or_init(|| Mutex::new(None))
+}
+
+pub fn set_orb_pos(pos: Option<(i32, i32)>) {
+    if let Ok(mut g) = orb_pos_slot().lock() {
+        *g = pos;
+    }
+}
+
+pub fn orb_pos() -> Option<(i32, i32)> {
+    orb_pos_slot().lock().ok().and_then(|g| *g)
+}
+
+pub fn reset_orb_pos() {
+    set_orb_pos(None);
+    if let Ok(mut d) = orb_pos_dirty_slot().lock() {
+        *d = Some(None);
+    }
+}
+
+pub fn take_orb_pos_dirty() -> Option<Option<(i32, i32)>> {
+    orb_pos_dirty_slot().lock().ok().and_then(|mut g| g.take())
 }
 
 static STATE: OnceLock<Mutex<State>> = OnceLock::new();
@@ -657,6 +862,43 @@ pub fn edge_tint() -> EdgeTint {
         _ => EdgeTint::White,
     }
 }
+static ORB_SIZE_IDX: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(1);
+static RING_SIZE_IDX: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(1);
+
+pub fn orb_size_preset() -> IndicatorSize {
+    IndicatorSize::from_idx(ORB_SIZE_IDX.load(Ordering::Relaxed) as usize)
+}
+
+pub fn set_orb_size(sz: IndicatorSize) {
+    ORB_SIZE_IDX.store(sz.idx() as u8, Ordering::Relaxed);
+    if let Ok(mut g) = state().lock() {
+        g.seq += 1;
+    }
+}
+
+pub fn ring_size_preset() -> IndicatorSize {
+    IndicatorSize::from_idx(RING_SIZE_IDX.load(Ordering::Relaxed) as usize)
+}
+
+pub fn set_ring_size(sz: IndicatorSize) {
+    RING_SIZE_IDX.store(sz.idx() as u8, Ordering::Relaxed);
+    if let Ok(mut g) = state().lock() {
+        g.seq += 1;
+    }
+}
+static RING_SENS_IDX: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(1);
+
+pub fn ring_sens_preset() -> RingSens {
+    RingSens::from_idx(RING_SENS_IDX.load(Ordering::Relaxed) as usize)
+}
+
+pub fn set_ring_sens(sens: RingSens) {
+    RING_SENS_IDX.store(sens.idx() as u8, Ordering::Relaxed);
+    if let Ok(mut g) = state().lock() {
+        g.seq += 1;
+    }
+}
+
 static HALO_TINT: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
 static HALO_BLUR_MILLI: std::sync::atomic::AtomicU32 =
     std::sync::atomic::AtomicU32::new((GLOW_CONFIG.blur_radius * 1000.0) as u32);
@@ -680,6 +922,9 @@ pub fn halo_tint_code(t: HaloTint) -> u8 {
         HaloTint::Violet => 2,
         HaloTint::Siri => 3,
         HaloTint::Rainbow => 4,
+        HaloTint::Cyberpunk => 5,
+        HaloTint::Emerald => 6,
+        HaloTint::Sunset => 7,
     }
 }
 
@@ -693,6 +938,9 @@ pub fn halo_tint() -> HaloTint {
         2 => HaloTint::Violet,
         3 => HaloTint::Siri,
         4 => HaloTint::Rainbow,
+        5 => HaloTint::Cyberpunk,
+        6 => HaloTint::Emerald,
+        7 => HaloTint::Sunset,
         _ => HaloTint::Blue,
     }
 }
@@ -782,15 +1030,15 @@ impl Overlay {
                 // 体检报告 §5.2(线程优先级):这条线程只负责显示,降优先级 ——
                 // 它晚一帧没人看得出来(悬浮条/边缘光本来就是提示性的),
                 // 而识别线程晚一帧就是掉字。放在进消息循环之前设一次即可,
-                // 优先级是线程属性,之后不会再变。
+                // 保持普通优先级，避免 60fps 全屏烟雾动画被后台任务抢占造成掉帧
                 unsafe {
-                    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+                    SetThreadPriority(GetCurrentThread(), 0);
                 }
                 let hwnd = unsafe { create_window() };
                 match hwnd {
                     Some(h) => {
                         unsafe {
-                            SetTimer(h, 1, 16, 0);
+                            SetTimer(h, 1, 15, 0);
                         }
                         let _ = tx.send(true);
                         unsafe {
@@ -799,6 +1047,7 @@ impl Overlay {
                                 TranslateMessage(&msg);
                                 DispatchMessageW(&msg);
                             }
+                            set_high_res_timer(false);
                         }
                     }
                     None => {
@@ -846,19 +1095,125 @@ impl Overlay {
         }
     }
 
-    /// 切到「悬浮球」模式（只表示正在录音 + 波形）。
+    /// 切到「悬浮声波」模式：按住热键期间淡入并保持可见，松手淡出。
     pub fn show_orb(&self) {
         if !self.enabled {
             return;
         }
         if let Ok(mut s) = state().lock() {
+            if s.mode != Mode::Orb {
+                s.orb_alpha = 0.0;
+            }
+            if s.orb_peak_agc <= 0.0 {
+                s.orb_noise_floor = 0.0035;
+                s.orb_peak_agc = 0.075;
+            }
             s.visible = true;
             s.mode = Mode::Orb;
             s.status.clear();
             s.text.clear();
             s.at = None;
+            s.orb_holding = true;
+            s.orb_fading = false;
+            s.orb_preview_until = None;
+            s.orb_last_voice = None;
+            s.orb_level_raw = 0.0;
+            s.orb_level_norm = 0.0;
             s.seq += 1;
         }
+    }
+
+    /// 切到「纯白流体圆环」模式：按住热键期间淡入并保持可见，松手淡出。
+    pub fn show_ring(&self) {
+        if !self.enabled {
+            return;
+        }
+        if let Ok(mut s) = state().lock() {
+            if s.mode != Mode::Ring {
+                s.orb_alpha = 0.0;
+            }
+            if s.orb_peak_agc <= 0.0 {
+                s.orb_noise_floor = 0.0035;
+                s.orb_peak_agc = 0.075;
+            }
+            s.visible = true;
+            s.mode = Mode::Ring;
+            s.status.clear();
+            s.text.clear();
+            s.at = None;
+            s.orb_holding = true;
+            s.orb_fading = false;
+            s.orb_preview_until = None;
+            s.orb_last_voice = None;
+            s.orb_level_raw = 0.0;
+            s.orb_level_norm = 0.0;
+            s.seq += 1;
+        }
+    }
+
+    /// 托盘切换/改配色/调大小预览悬浮声波：稳定显示 hold_ms 毫秒后平滑淡出。
+    pub fn preview_orb(&self, hold_ms: u64) {
+        if !self.enabled {
+            return;
+        }
+        if let Ok(mut s) = state().lock() {
+            if s.mode != Mode::Orb {
+                s.orb_alpha = 0.0;
+            }
+            s.visible = true;
+            s.mode = Mode::Orb;
+            s.status.clear();
+            s.text.clear();
+            s.at = None;
+            s.orb_holding = false;
+            s.orb_fading = false;
+            s.orb_preview_until = Some(std::time::Instant::now() + Duration::from_millis(hold_ms));
+            s.seq += 1;
+        }
+    }
+
+    /// 托盘切换/调大小预览纯白流体圆环：稳定显示 hold_ms 毫秒后平滑淡出。
+    pub fn preview_ring(&self, hold_ms: u64) {
+        if !self.enabled {
+            return;
+        }
+        if let Ok(mut s) = state().lock() {
+            if s.mode != Mode::Ring {
+                s.orb_alpha = 0.0;
+            }
+            s.visible = true;
+            s.mode = Mode::Ring;
+            s.status.clear();
+            s.text.clear();
+            s.at = None;
+            s.orb_holding = false;
+            s.orb_fading = false;
+            s.orb_preview_until = Some(std::time::Instant::now() + Duration::from_millis(hold_ms));
+            s.seq += 1;
+        }
+    }
+
+    /// 让悬浮声波或白环平滑淡出（松手或预览结束时调用）。
+    pub fn fade_orb(&self) {
+        if !self.enabled {
+            return;
+        }
+        if let Ok(mut s) = state().lock() {
+            if matches!(s.mode, Mode::Orb | Mode::Ring) {
+                s.orb_holding = false;
+                s.orb_fading = true;
+                s.orb_preview_until = None;
+                s.orb_last_voice = None;
+                s.orb_level_raw = 0.0;
+                s.orb_level_norm = 0.0;
+                s.seq += 1;
+            }
+        }
+    }
+
+    /// 让纯白流体圆环平滑淡出（松手或预览结束时调用）。
+    pub fn fade_ring(&self) {
+        self.fade_orb();
     }
 
     /// 切到「屏幕边缘光」模式并开始亮起（录音开始）。
@@ -918,26 +1273,15 @@ impl Overlay {
         self.fade_edge();
     }
 
-    /// 推一帧音量（0..1）给悬浮球画波形。
+    /// 推一帧音量（0..1）给悬浮声波。
     ///
-    /// 只在 Orb 模式下有意义；Bar 模式直接丢掉，免得白占内存。
-    /// 不递增 seq —— 波形每 40ms 变一次，若算作"内容变化"会让整个 HUD
-    /// 每帧都重新定位+重画，反而闪。
+    /// 只在 Orb 模式下有意义；超过语音门限时自动触发淡入，静音持续后平滑淡出。
     pub fn push_level(&self, level: f32) {
         if !self.enabled {
             return;
         }
         if let Ok(mut s) = state().lock() {
-            if s.mode != Mode::Orb {
-                return;
-            }
-            let v = level.clamp(0.0, 1.0);
-            s.levels.push(v);
-            // 40 个点 ≈ 1.6 秒的历史，够看出说话节奏，又不至于拖太长
-            if s.levels.len() > 40 {
-                let drop_n = s.levels.len() - 40;
-                s.levels.drain(0..drop_n);
-            }
+            push_level_into(&mut s, level);
         }
     }
 
@@ -960,6 +1304,11 @@ impl Overlay {
         }
         if let Ok(mut s) = state().lock() {
             s.visible = false;
+            s.orb_alpha = 0.0;
+            s.orb_env = 0.0;
+            s.orb_fading = false;
+            s.orb_preview_until = None;
+            s.orb_last_voice = None;
             s.seq += 1;
         }
     }
@@ -983,6 +1332,48 @@ impl Overlay {
         self.enabled
     }
 }
+fn push_level_into(s: &mut State, level: f32) {
+    push_level_with_sens(s, level, ring_sens_preset());
+}
+
+fn push_level_with_sens(s: &mut State, level: f32, ring_sens: RingSens) {
+    if !matches!(s.mode, Mode::Orb | Mode::Ring) {
+        return;
+    }
+    let (gain, agc_floor, span_floor, gamma, gate_floor) = if s.mode == Mode::Ring {
+        match ring_sens {
+            RingSens::Low => (1.0f32, 0.048f32, 0.036f32, 0.58f32, ORB_VOICE_THRESH_MIN),
+            RingSens::Medium => (2.2f32, 0.026f32, 0.018f32, 0.44f32, 0.0072f32),
+            RingSens::High => (3.4f32, 0.016f32, 0.012f32, 0.36f32, 0.0065f32),
+        }
+    } else {
+        (1.0f32, 0.045f32, 0.035f32, 0.55f32, ORB_VOICE_THRESH_MIN)
+    };
+    if s.orb_peak_agc <= 0.0 {
+        s.orb_noise_floor = 0.0035;
+        s.orb_peak_agc = agc_floor.max(0.036);
+    }
+    let raw = level.clamp(0.0, 1.0);
+    let v = (raw * gain).clamp(0.0, 1.0);
+    s.orb_level_raw = v;
+    if v < s.orb_noise_floor {
+        s.orb_noise_floor += (v - s.orb_noise_floor) * 0.25;
+    } else if v < s.orb_noise_floor * 1.8 {
+        s.orb_noise_floor += (v - s.orb_noise_floor) * 0.015;
+    }
+    s.orb_noise_floor = s.orb_noise_floor.clamp(0.0015, 0.045);
+    let gate = (s.orb_noise_floor * 2.4).max(gate_floor);
+    if v >= gate {
+        s.orb_last_voice = Some(std::time::Instant::now());
+        s.orb_peak_agc = (s.orb_peak_agc * 0.986).max(v).max(agc_floor);
+    } else {
+        s.orb_peak_agc = (s.orb_peak_agc * 0.992).max(agc_floor);
+    }
+    let floor_ref = gate * 0.42;
+    let span = (s.orb_peak_agc - floor_ref).max(span_floor);
+    let norm = ((v - floor_ref) / span).clamp(0.0, 1.0);
+    s.orb_level_norm = norm.powf(gamma);
+}
 
 unsafe fn set_dpi_aware() {
     if SetProcessDpiAwarenessContext(-4isize) == 0 {
@@ -995,7 +1386,7 @@ unsafe fn create_window() -> Option<isize> {
     let inst = GetModuleHandleW(ptr::null());
     let cls = wide(OVERLAY_CLASS);
     let wc = WndClassW {
-        style: 0,
+        style: CS_DBLCLKS,
         lpfn_wnd_proc: Some(wnd_proc),
         cb_cls_extra: 0,
         cb_wnd_extra: 0,
@@ -1040,10 +1431,162 @@ unsafe fn create_window() -> Option<isize> {
     Some(hwnd)
 }
 
+unsafe fn set_click_through(hwnd: isize, pass_through: bool) {
+    let prev = ORB_PASS_THROUGH.swap(pass_through, Ordering::Relaxed);
+    if prev == pass_through {
+        return;
+    }
+    let ex = GetWindowLongW(hwnd, GWL_EXSTYLE);
+    let next = if pass_through {
+        ex | (WS_EX_TRANSPARENT as i32)
+    } else {
+        ex & !(WS_EX_TRANSPARENT as i32)
+    };
+    if next != ex {
+        SetWindowLongW(hwnd, GWL_EXSTYLE, next);
+    }
+}
+
+unsafe fn cursor_screen_pos() -> Option<(i32, i32)> {
+    let mut pt = Point::default();
+    if GetCursorPos(&mut pt) != 0 {
+        Some((pt.x, pt.y))
+    } else {
+        None
+    }
+}
+
 unsafe extern "system" fn wnd_proc(hwnd: isize, msg: u32, wp: usize, lp: isize) -> isize {
     match msg {
+        WM_NCHITTEST => {
+            let dragging = ORB_DRAG
+                .get_or_init(|| Mutex::new(DragState::default()))
+                .lock()
+                .map(|d| d.active)
+                .unwrap_or(false);
+            if dragging {
+                return HTCLIENT;
+            }
+            let can_hit = state()
+                .lock()
+                .map(|s| s.visible && matches!(s.mode, Mode::Orb | Mode::Ring) && s.orb_alpha > 0.02)
+                .unwrap_or(false);
+            if can_hit {
+                let x = (lp as i32) as i16 as i32;
+                let y = ((lp as i32) >> 16) as i16 as i32;
+                let pr = CURRENT_ORB_RECT
+                    .get_or_init(|| Mutex::new(None))
+                    .lock()
+                    .ok()
+                    .and_then(|g| *g);
+                if let Some(r) = pr {
+                    if x >= r.left && x <= r.right && y >= r.top && y <= r.bottom {
+                        return HTCLIENT;
+                    }
+                }
+            }
+            HTTRANSPARENT
+        }
         WM_MOUSEACTIVATE => MA_NOACTIVATE,
         WM_ERASEBKGND => 1, // Direct2D 自己画，不让系统擦
+        WM_SETCURSOR => {
+            let can_drag = state()
+                .lock()
+                .map(|s| s.visible && matches!(s.mode, Mode::Orb | Mode::Ring) && s.orb_alpha > 0.02)
+                .unwrap_or(false);
+            if can_drag {
+                let hc = LoadCursorW(0, IDC_SIZEALL);
+                if hc != 0 {
+                    SetCursor(hc);
+                    return 1;
+                }
+            }
+            DefWindowProcW(hwnd, msg, wp, lp)
+        }
+        WM_LBUTTONDOWN => {
+            let panel_rect = CURRENT_ORB_RECT
+                .get_or_init(|| Mutex::new(None))
+                .lock()
+                .ok()
+                .and_then(|g| *g);
+            let can_drag = state()
+                .lock()
+                .map(|s| s.visible && matches!(s.mode, Mode::Orb | Mode::Ring) && s.orb_alpha > 0.02)
+                .unwrap_or(false);
+            if can_drag {
+                if let (Some(pr), Some((cx, cy))) = (panel_rect, cursor_screen_pos()) {
+                    if cx >= pr.left && cx <= pr.right && cy >= pr.top && cy <= pr.bottom {
+                        if let Ok(mut d) = ORB_DRAG.get_or_init(|| Mutex::new(DragState::default())).lock() {
+                            *d = DragState {
+                                active: true,
+                                start_cursor_x: cx,
+                                start_cursor_y: cy,
+                                start_panel_x: pr.left,
+                                start_panel_y: pr.top,
+                            };
+                        }
+                        SetCapture(hwnd);
+                        return 0;
+                    }
+                }
+            }
+            0
+        }
+        WM_MOUSEMOVE => {
+            let drag = ORB_DRAG
+                .get_or_init(|| Mutex::new(DragState::default()))
+                .lock()
+                .map(|g| *g)
+                .unwrap_or_default();
+            if drag.active {
+                if let Some((cx, cy)) = cursor_screen_pos() {
+                    let sw = GetSystemMetrics(0).max(1);
+                    let sh = GetSystemMetrics(1).max(1);
+                    let cur_mode = state().lock().map(|s| s.mode).unwrap_or(Mode::Orb);
+                    let (w, h) = indicator_size(cur_mode);
+                    let nx = (drag.start_panel_x + (cx - drag.start_cursor_x)).clamp(4, (sw - w - 4).max(4));
+                    let ny = (drag.start_panel_y + (cy - drag.start_cursor_y)).clamp(4, (sh - h - 4).max(4));
+                    let s = scale().max(0.5);
+                    let dp_x = (nx as f32 / s).round() as i32;
+                    let dp_y = (ny as f32 / s).round() as i32;
+                    set_orb_pos(Some((dp_x, dp_y)));
+                }
+                return 0;
+            }
+            0
+        }
+        WM_LBUTTONUP | WM_CAPTURECHANGED => {
+            let was_active = ORB_DRAG
+                .get_or_init(|| Mutex::new(DragState::default()))
+                .lock()
+                .map(|mut d| {
+                    let a = d.active;
+                    d.active = false;
+                    a
+                })
+                .unwrap_or(false);
+            if was_active {
+                if msg == WM_LBUTTONUP {
+                    ReleaseCapture();
+                }
+                if let Some(pos) = orb_pos() {
+                    if let Ok(mut dirty) = orb_pos_dirty_slot().lock() {
+                        *dirty = Some(Some(pos));
+                    }
+                }
+            }
+            0
+        }
+        WM_LBUTTONDBLCLK => {
+            let can_reset = state()
+                .lock()
+                .map(|s| s.visible && matches!(s.mode, Mode::Orb | Mode::Ring) && s.orb_alpha > 0.02)
+                .unwrap_or(false);
+            if can_reset {
+                reset_orb_pos();
+            }
+            0
+        }
         WM_PAINT => {
             // UpdateLayeredWindow 自己推位图，这里只需把窗口内容标脏
             let mut ps: PaintStruct = std::mem::zeroed();
@@ -1068,42 +1611,9 @@ unsafe extern "system" fn wnd_proc(hwnd: isize, msg: u32, wp: usize, lp: isize) 
     }
 }
 
-/// 悬浮球的波形自**上次真正画到屏幕上**以来变没变。
-///
-/// 为什么不能拿 `seq` 当门控:波形变化**不算**「内容变化」——
-/// `push_level` 的注释解释过,若算作内容变化会让整个 HUD 每帧重新定位+重画(反而闪)。
-/// 所以只能拿「上一帧画出去的那份 levels」和现在这份比。
-/// 顺带天然地合并帧:中间漏画几拍没关系,下一帧一定把最新的画出去,不会丢。
-/// 安静时主循环会一直推同一个数(比如 0.0),40 点滑窗内容完全不变 —— 那就一帧都不画。
-fn orb_levels_changed() -> bool {
-    let cur = match state().lock() {
-        Ok(s) => s.levels.clone(),
-        Err(_) => return false,
-    };
-    LAST_ORB_LEVELS.with(|slot| {
-        let mut last = slot.borrow_mut();
-        if last.as_deref() == Some(cur.as_slice()) {
-            false
-        } else {
-            *last = Some(cur);
-            true
-        }
-    })
-}
-
 /// 从共享状态同步窗口:内容、位置、显隐。
 ///
 /// 🔴 窗口**尺寸恒定 = 整屏**,而且只在第一次 ShowWindow,之后永不 hide/show。
-///
-/// 为什么必须这样(2026-10-30 实测,别改回去):原来每说一句都在
-/// 「整屏(边缘光)↔ 小面板(细条)」之间改窗口尺寸,并 hide/show 一次。
-/// 分层窗口(`WS_EX_LAYERED`)的尺寸由 `UpdateLayeredWindow` 推的那块位图决定 ——
-/// 尺寸一变,系统就要为这个窗口**重建一份表面**;实测这份表面在 NVIDIA 驱动上
-/// **不会回收**:每说一句进程里多一块 32 MiB(4K 下正好 2^25 字节)的私有提交,
-/// 半天 2 GB+,最后把整机提交额度吃光 → DWM `STATUS_FATAL_MEMORY_EXHAUSTION`
-/// → 全屏黑 + 程序闪退。ETW 抓到的分配栈:
-/// `win32u(分层窗口更新)→ DXGI/D3D11 设备路径 → nvwgf2umx(NVIDIA UMD)→ 内核`。
-/// 现在尺寸不再变、窗口不再隐藏(显隐 = alpha),那条"重建表面"的路就永远不会被走到。
 unsafe fn sync(hwnd: isize) {
     let (visible, seq, mode, status, text, at) = match state().lock() {
         Ok(s) => (
@@ -1117,9 +1627,13 @@ unsafe fn sync(hwnd: isize) {
         Err(_) => return,
     };
 
-    // 边缘光:先做缓动(每帧朝目标走一小步),再决定要不要显示。
-    // 这段必须在 visible 判断之前 —— 淡出过程中 visible 仍是 true,
-    // 但亮度降到 0 之后要能自己收起来。
+    let dragging = ORB_DRAG
+        .get_or_init(|| Mutex::new(DragState::default()))
+        .lock()
+        .map(|d| d.active)
+        .unwrap_or(false);
+
+    // 边缘光/流光：按真实帧间隔缓动
     let mut edge_done = false;
     let is_fullscreen_anim = matches!(mode, Mode::Edge | Mode::Halo);
     if is_fullscreen_anim {
@@ -1129,9 +1643,6 @@ unsafe fn sync(hwnd: isize) {
         };
         let target = g.edge_target;
         let cur = g.edge_level;
-        // 缓动系数按**实际间隔**折算:60fps(16ms)时等效于原来的 0.06 ——
-        // 淡入约 350ms、淡出约 500ms;30fps(33ms)时系数自动变大,
-        // **时长不变**(只有平滑度降低)。写死"每帧 6%"会在降帧率时把时长翻倍。
         let dt_ms = {
             let mut last = EDGE_LAST_TICK
                 .get_or_init(|| Mutex::new(std::time::Instant::now()))
@@ -1154,7 +1665,35 @@ unsafe fn sync(hwnd: isize) {
             edge_done = true;
         }
     }
-    let visible = if edge_done {
+
+    // 悬浮声波 / 白环（Mode::Orb | Mode::Ring）：按住热键淡入并持续可见，松手平滑淡出
+    let mut orb_alpha_now = 0.0f32;
+    let mut orb_target_now = 0.0f32;
+    let mut orb_done = false;
+    let is_indicator = matches!(mode, Mode::Orb | Mode::Ring);
+    if is_indicator && visible {
+        let mut g = match state().lock() {
+            Ok(g) => g,
+            Err(_) => return,
+        };
+        let dt_ms = {
+            let mut last = ORB_LAST_TICK
+                .get_or_init(|| Mutex::new(std::time::Instant::now()))
+                .lock()
+                .unwrap();
+            let dt = last.elapsed().as_secs_f32() * 1000.0;
+            *last = std::time::Instant::now();
+            dt.clamp(1.0, 100.0)
+        };
+        let t_sec = halo_clock_secs() as f32;
+        let (alpha_now, target_alpha, done) =
+            tick_indicator_state(&mut g, dt_ms, t_sec, dragging, std::time::Instant::now());
+        orb_alpha_now = alpha_now;
+        orb_target_now = target_alpha;
+        orb_done = done;
+    }
+
+    let visible = if edge_done || orb_done {
         match state().lock() {
             Ok(g) => g.visible,
             Err(_) => return,
@@ -1172,21 +1711,15 @@ unsafe fn sync(hwnd: isize) {
             false
         }
     };
-    // 「要不要重画」——
-    //
-    // 🔴 2026-10-31(AUDIT §5.1):原来是 `changed || mode == Orb || mode == Edge`。
-    // 悬浮球的画面是 **`levels` 的纯函数**:圆底和环的几何全是常量,九根柱的高度
-    // 只由最近九个音量值决定,没有任何时间项。而主循环每 ~32ms 才推一次 levels,
-    // 按 60fps 无条件重画意味着一半以上的帧画出来**和上一帧逐像素相同**,
-    // 白付一次 D2D 绘制 + 一次整屏 `UpdateLayeredWindow`。
-    // 现在只在「levels 和上次真正画出去的那份不一样」时才画(见 `orb_levels_changed`)。
-    //
-    // 边缘光**保留逐帧**:它的呼吸(2200ms)和流动(8000ms)是连续动画,门控会看出卡顿。
-    // 降帧率是另一条(有观感代价)的选项,不在本次改动里。
-    // 边缘光按 `edge_fps()` 的节拍重画:30fps 时**隔一拍才画一次**(省一半整屏绘制)。
-    // 注意缓动在上面已经按真实间隔算过,所以"少画"只影响平滑度,不影响时长。
+
+    let orb_active_anim = visible && is_indicator && (orb_alpha_now > 0.004 || orb_target_now > 0.0);
+    set_high_res_timer(visible && (is_fullscreen_anim || orb_active_anim));
+    set_click_through(hwnd, !(visible && is_indicator && (orb_alpha_now > 0.02 || dragging)));
+
     let edge_due = is_fullscreen_anim && {
-        let budget = std::time::Duration::from_millis((1000 / edge_fps().max(1)) as u64);
+        let fps = edge_fps().max(1);
+        let budget_ms = if fps >= 60 { 11 } else { 28 };
+        let budget = std::time::Duration::from_millis(budget_ms);
         let mut last = EDGE_LAST_PAINT
             .get_or_init(|| Mutex::new(std::time::Instant::now() - budget))
             .lock()
@@ -1198,10 +1731,8 @@ unsafe fn sync(hwnd: isize) {
             false
         }
     };
-    let repaint = changed || edge_due || (mode == Mode::Orb && orb_levels_changed());
+    let repaint = changed || edge_due || (is_indicator && orb_alpha_now > 0.004);
 
-    // 这块窗口是整屏的,所以「画布坐标 == 屏幕坐标」;
-    // 下面算出来的 (x,y,w,h) 是**内容在画布里的矩形**(不再是窗口的位置/尺寸)。
     let sw = GetSystemMetrics(0);
     let sh = GetSystemMetrics(1);
     if sw <= 0 || sh <= 0 {
@@ -1209,17 +1740,19 @@ unsafe fn sync(hwnd: isize) {
     }
     let (w, h) = match mode {
         Mode::Bar => measure(&status, &text),
-        Mode::Orb => orb_size(),
-        // 边缘光铺满整个屏幕(物理像素)
+        Mode::Orb | Mode::Ring => indicator_size(mode),
         Mode::Edge | Mode::Halo => (sw, sh),
     };
-    // 固定在屏幕**中下方**、任务栏上面一点点(用户明确要求)。
-    // 不再跟随光标/鼠标 —— 跟随会在打字时来回跳,反而更干扰。
-    // `at` 仍然保留:overlay-demo 用它把内容摆到指定坐标做预览。
     let (mut x, mut y) = match mode {
-        // 边缘光永远贴 (0,0) 铺满,不走锚点
         Mode::Edge | Mode::Halo => (0, 0),
-        _ => match at {
+        Mode::Orb | Mode::Ring => match at {
+            Some((ax, ay)) => (ax, ay),
+            None => match orb_pos() {
+                Some((dx, dy)) => (px(dx), px(dy)),
+                None => anchor_pos_orb(w, h),
+            },
+        },
+        Mode::Bar => match at {
             Some((ax, ay)) => (ax, ay),
             None => anchor_pos(w, h),
         },
@@ -1227,16 +1760,16 @@ unsafe fn sync(hwnd: isize) {
 
     // 屏幕边界钳制
     if x + w > sw {
-        x = sw - w - 8;
+        x = sw - w - 4;
     }
     if y + h > sh {
-        y = sh - h - 8;
+        y = sh - h - 4;
     }
     if x < 0 {
-        x = 8;
+        x = 4;
     }
     if y < 0 {
-        y = 8;
+        y = 4;
     }
     let panel = Rect {
         left: x,
@@ -1244,36 +1777,111 @@ unsafe fn sync(hwnd: isize) {
         right: x + w,
         bottom: y + h,
     };
+    if let Ok(mut slot) = CURRENT_ORB_RECT.get_or_init(|| Mutex::new(None)).lock() {
+        *slot = if visible && is_indicator { Some(panel) } else { None };
+    }
 
-    // 窗口只在第一次摆一次(位置=(0,0)、尺寸=整屏),之后只推内容。
     if !WINDOW_PLACED.load(Ordering::Relaxed) {
         SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, sw, sh, SWP_NOACTIVATE);
         ShowWindow(hwnd, SW_SHOWNOACTIVATE);
         WINDOW_PLACED.store(true, Ordering::Relaxed);
     }
 
-    if !visible {
-        // 「隐藏」= 推一帧全透明(alpha 全 0 等于看不见,且 WS_EX_TRANSPARENT 不吃点击)。
-        // 窗口本身留着 —— 不给系统"销毁/重建表面"的机会。
+    if !visible || (is_indicator && orb_alpha_now <= 0.004) {
         if PAINTED.load(Ordering::Relaxed) {
             paint(hwnd, &panel, false);
             PAINTED.store(false, Ordering::Relaxed);
         }
         return;
     }
-    // UpdateLayeredWindow 是"推"模型:每帧主动重画,不依赖 WM_PAINT
     if repaint {
         paint(hwnd, &panel, true);
         PAINTED.store(true, Ordering::Relaxed);
     }
 }
 
+fn tick_indicator_state(
+    g: &mut State,
+    dt_ms: f32,
+    t_sec: f32,
+    dragging: bool,
+    now: std::time::Instant,
+) -> (f32, f32, bool) {
+    let preview_on = match g.orb_preview_until {
+        Some(until) if now < until => true,
+        Some(_) => {
+            g.orb_preview_until = None;
+            if !g.orb_holding {
+                g.orb_fading = true;
+            }
+            false
+        }
+        None => false,
+    };
+    let speaking = g
+        .orb_last_voice
+        .map(|t| now.saturating_duration_since(t).as_millis() <= ORB_SILENCE_HOLD_MS as u128)
+        .unwrap_or(false);
+    let held_active = g.orb_holding && !g.orb_fading;
+    let target_alpha = if dragging || preview_on || held_active {
+        1.0f32
+    } else {
+        0.0f32
+    };
+    let tau_alpha = if target_alpha > g.orb_alpha { 85.0 } else { 210.0 };
+    let k_alpha = 1.0 - (-dt_ms / tau_alpha).exp();
+    g.orb_alpha += (target_alpha - g.orb_alpha) * k_alpha;
+    if target_alpha == 0.0 && g.orb_alpha < 0.005 {
+        g.orb_alpha = 0.0;
+    } else if target_alpha == 1.0 && (1.0 - g.orb_alpha) < 0.004 {
+        g.orb_alpha = 1.0;
+    }
+    let mut orb_done = false;
+    if g.orb_fading && g.orb_alpha == 0.0 && !dragging && !held_active {
+        g.visible = false;
+        g.orb_fading = false;
+        orb_done = true;
+    }
+
+    let is_ring = g.mode == Mode::Ring;
+    let raw_energy = if preview_on || (dragging && !speaking) {
+        if is_ring {
+            (0.30 + 0.16 * (t_sec * 2.1).sin().abs() + 0.08 * (t_sec * 3.7).cos().abs())
+                .clamp(0.0, 1.0)
+        } else {
+            (0.36 + 0.26 * (t_sec * 3.1).sin().abs() + 0.16 * (t_sec * 7.3).cos().abs())
+                .clamp(0.0, 1.0)
+        }
+    } else if held_active || g.orb_alpha > 0.01 {
+        if speaking {
+            if is_ring {
+                (0.15 + 0.85 * g.orb_level_norm).clamp(0.0, 1.0)
+            } else {
+                (0.24 + 0.76 * g.orb_level_norm).clamp(0.0, 1.0)
+            }
+        } else {
+            // 按着快捷键但暂未开口/句间停顿：保持轻柔活体呼吸，绝不消失
+            if is_ring { 0.08 } else { 0.14 }
+        }
+    } else {
+        0.0
+    };
+    let (tau_up, tau_down) = if is_ring { (55.0, 185.0) } else { (48.0, 150.0) };
+    let tau_env = if raw_energy > g.orb_env { tau_up } else { tau_down };
+    let k_env = 1.0 - (-dt_ms / tau_env).exp();
+    g.orb_env += (raw_energy - g.orb_env) * k_env;
+    let k_b = 1.0 - (-dt_ms / 115.0).exp();
+    let k_m = 1.0 - (-dt_ms / 70.0).exp();
+    let k_t = 1.0 - (-dt_ms / 42.0).exp();
+    g.orb_bass += (raw_energy * 0.92 - g.orb_bass) * k_b;
+    g.orb_mid += ((raw_energy * (0.88 + 0.14 * (t_sec * 4.5).sin())).clamp(0.0, 1.0) - g.orb_mid) * k_m;
+    g.orb_treble += ((raw_energy * (0.82 + 0.22 * (t_sec * 8.2).cos())).clamp(0.0, 1.0) - g.orb_treble) * k_t;
+
+    (g.orb_alpha, target_alpha, orb_done)
+}
+
 /// 细条尺寸：**只有一行正文**，没有状态行、没有分隔线。
-///
-/// 用户要求撤掉「录音中…」那一行 —— 状态由悬浮球负责，细条只管显示文字。
-/// 这样高度从 96 设计像素降到 44，不再挡字。
 fn measure(_status: &str, text: &str) -> (i32, i32) {
-    // 粗略估宽：真排版在 paint 里用 DirectWrite 做，这里只需要一个够用的宽度。
     let estimate = |s: &str| -> i32 {
         s.chars()
             .map(|c| if c.is_ascii() { px(BAR_CHAR_ASCII) } else { px(BAR_CHAR_CJK) })
@@ -1282,7 +1890,6 @@ fn measure(_status: &str, text: &str) -> (i32, i32) {
     let text_w = estimate(text);
     let w = (text_w + px(BAR_PAD_X) * 2).clamp(px(BAR_MIN_W), px(BAR_MAX_W));
 
-    // 正文行数
     let usable = (w - px(BAR_PAD_X) * 2).max(px(80));
     let lines = if text_w <= usable {
         1
@@ -1293,33 +1900,48 @@ fn measure(_status: &str, text: &str) -> (i32, i32) {
     (w, h.max(px(BAR_MIN_H)))
 }
 
-/// 悬浮球尺寸：正方形，边长固定。
-fn orb_size() -> (i32, i32) {
-    let d = px(ORB_D);
-    (d, d)
+/// 悬浮声波 / 白环尺寸（设计像素按大中小预设缩放）。
+fn orb_dims(sz: IndicatorSize) -> (i32, i32) {
+    ORB_DIMS[sz.idx()]
 }
 
-/// 屏幕中下方、任务栏正上方。
-///
-/// 为什么不用工作区（`SystemParametersInfo(SPI_GETWORKAREA)`）：
-/// 那条 API 在多显示器 / 自动隐藏任务栏下给出的矩形不一定准，
-/// 而用户要的是"任务栏上面一点点"这个**视觉**位置 —— 直接用屏幕高度减去
-/// 任务栏高度（`SPI_GETWORKAREA` 拿不到时退回固定 56px 间距）最稳。
-fn anchor_pos(w: i32, h: i32) -> (i32, i32) {
-    let sw = unsafe { GetSystemMetrics(0) };
-    let sh = unsafe { GetSystemMetrics(1) };
-    let x = (sw - w) / 2;
-    // 任务栏高度：用 SPI_GETWORKAREA 的工作区底边反推；拿不到就用屏幕底部留白。
-    let work_bottom = unsafe {
+fn ring_dims(sz: IndicatorSize) -> (i32, i32) {
+    RING_DIMS[sz.idx()]
+}
+
+fn indicator_size(mode: Mode) -> (i32, i32) {
+    let (dw, dh) = match mode {
+        Mode::Ring => ring_dims(ring_size_preset()),
+        _ => orb_dims(orb_size_preset()),
+    };
+    (px(dw), px(dh))
+}
+
+fn work_area_bottom(sh: i32) -> i32 {
+    unsafe {
         let mut r: Rect = std::mem::zeroed();
         if SystemParametersInfoW(0x0030, 0, &mut r as *mut Rect as *mut _, 0) != 0 {
             r.bottom
         } else {
             sh
         }
-    };
-    // 工作区底边就是任务栏顶边。再往上留 BOTTOM_GAP，让卡片不贴着任务栏。
-    let y = work_bottom - h - BOTTOM_GAP;
+    }
+}
+
+fn anchor_pos_orb(w: i32, h: i32) -> (i32, i32) {
+    let sw = unsafe { GetSystemMetrics(0) };
+    let sh = unsafe { GetSystemMetrics(1) };
+    let x = (sw - w) / 2;
+    let y = work_area_bottom(sh) - h - px(ORB_BOTTOM_GAP);
+    (x.max(0), y.max(0))
+}
+
+/// 屏幕中下方、任务栏正上方（细条默认锚点）。
+fn anchor_pos(w: i32, h: i32) -> (i32, i32) {
+    let sw = unsafe { GetSystemMetrics(0) };
+    let sh = unsafe { GetSystemMetrics(1) };
+    let x = (sw - w) / 2;
+    let y = work_area_bottom(sh) - h - BOTTOM_GAP;
     (x.max(0), y.max(0))
 }
 
@@ -1411,8 +2033,17 @@ unsafe fn caret_pos(hwnd: isize, _w: i32, _h: i32) -> (i32, i32) {
 /// 于是每句话都在整屏 ↔ 小面板之间重建位图、同时窗口也跟着改尺寸 ——
 /// 那正是"一句一块 32 MiB"的来源(见 sync 的注释)。
 unsafe fn paint(hwnd: isize, panel: &Rect, draw: bool) {
-    let (mode, _status, text, levels) = match state().lock() {
-        Ok(s) => (s.mode, s.status.clone(), s.text.clone(), s.levels.clone()),
+    let (mode, _status, text, orb_alpha, orb_env, orb_bass, orb_mid, orb_treble) = match state().lock() {
+        Ok(s) => (
+            s.mode,
+            s.status.clone(),
+            s.text.clone(),
+            s.orb_alpha,
+            s.orb_env,
+            s.orb_bass,
+            s.orb_mid,
+            s.orb_treble,
+        ),
         Err(_) => return,
     };
     let sw = GetSystemMetrics(0);
@@ -1444,12 +2075,13 @@ unsafe fn paint(hwnd: isize, panel: &Rect, draw: bool) {
     // 本帧内容会落到画布上的区域(画布坐标 = 屏幕坐标)。
     // `draw == false` 是「隐藏」那一帧:本帧什么都不画,于是「本帧区域」是空集,
     // 下面的并集正好退化成「只把上一帧的残留抹掉」——正是隐藏要的效果。
+    let halo_cfg_snap = halo_config();
+    let scale_snap = scale().max(0.5);
     let cur = if draw {
-        content_rects(mode, panel, sw, sh)
+        content_rects_with_cfg(mode, panel, sw, sh, &halo_cfg_snap, scale_snap)
     } else {
         [EMPTY_RECT; DIRTY_MAX]
     };
-
     // 画布:按**屏幕**尺寸缓存(整进程就这一块;屏幕变了才重建)。
     //
     // 这里只借一下 CANVAS 把 (mem_dc, bits) 拿出来就还回去 —— 后面的清零/绘制只用这两个值。
@@ -1499,14 +2131,34 @@ unsafe fn paint(hwnd: isize, panel: &Rect, draw: bool) {
         if draw {
             match mode {
                 Mode::Bar => d2d_paint_bar(mem_dc, &canvas, clear, &layout, offset, &text),
-                Mode::Orb => d2d_paint_orb(mem_dc, &canvas, clear, &layout, offset, &levels),
+                Mode::Orb => paint_orb_silk_wave(
+                    bits,
+                    sw,
+                    sh,
+                    panel,
+                    orb_alpha,
+                    orb_env,
+                    orb_bass,
+                    orb_mid,
+                    orb_treble,
+                    scale_snap,
+                ),
+                Mode::Ring => paint_orb_white_ring(
+                    bits,
+                    sw,
+                    sh,
+                    panel,
+                    orb_alpha,
+                    orb_env,
+                    scale_snap,
+                ),
                 Mode::Edge => {
                     let lv = state().lock().map(|g| g.edge_level).unwrap_or(0.0);
                     d2d_paint_edge(mem_dc, &canvas, clear, &layout, offset, lv);
                 }
                 Mode::Halo => {
                     let lv = state().lock().map(|g| g.edge_level).unwrap_or(0.0);
-                    paint_halo(bits, sw, sh, lv);
+                    paint_halo_with_cfg(bits, sw, sh, lv, &halo_cfg_snap, scale_snap);
                 }
             }
         }
@@ -1548,10 +2200,17 @@ unsafe fn paint(hwnd: isize, panel: &Rect, draw: bool) {
 /// 后果是屏幕上留一条**永远清不掉**的亮线 —— 多清 1px 的成本可以忽略,不值当赌。
 ///
 /// 定长 4(悬浮球/细条只用第 0 个),没用到的槽位是空矩形,由空判断统一过滤。
-fn content_rects(mode: Mode, panel: &Rect, sw: i32, sh: i32) -> [Rect; DIRTY_MAX] {
+fn content_rects_with_cfg(
+    mode: Mode,
+    panel: &Rect,
+    sw: i32,
+    sh: i32,
+    halo_cfg: &GlowConfig,
+    s: f32,
+) -> [Rect; DIRTY_MAX] {
     let mut out = [EMPTY_RECT; DIRTY_MAX];
     match mode {
-        Mode::Bar | Mode::Orb => out[0] = pad1(panel),
+        Mode::Bar | Mode::Orb | Mode::Ring => out[0] = pad1(panel),
         Mode::Edge => {
             let spread = px(edge_spread()) as f32;
             for (i, g) in edge_geometry(sw as f32, sh as f32, spread).iter().enumerate() {
@@ -1565,7 +2224,7 @@ fn content_rects(mode: Mode, panel: &Rect, sw: i32, sh: i32) -> [Rect; DIRTY_MAX
             }
         }
         Mode::Halo => {
-            let reach = halo_reach_px(sw, sh, scale());
+            let reach = halo_reach_px_cfg(halo_cfg, sw, sh, s);
             let bands = [
                 Rect { left: 0, top: 0, right: sw, bottom: reach },
                 Rect { left: sw - reach, top: 0, right: sw, bottom: sh },
@@ -1578,6 +2237,11 @@ fn content_rects(mode: Mode, panel: &Rect, sw: i32, sh: i32) -> [Rect; DIRTY_MAX
         }
     }
     out
+}
+
+#[cfg(test)]
+fn content_rects(mode: Mode, panel: &Rect, sw: i32, sh: i32) -> [Rect; DIRTY_MAX] {
+    content_rects_with_cfg(mode, panel, sw, sh, &halo_config(), scale().max(0.5))
 }
 
 /// 往外扩 1px(见 `content_rects` 的说明)。
@@ -1716,11 +2380,6 @@ thread_local! {
 
     /// 「上一帧区域 ∪ 本帧区域」的复用缓冲 —— 免得每帧为这几个矩形分配一次 Vec(Vec 稳态不扩容)。
     static CLEAR: std::cell::RefCell<Vec<Rect>> = const { std::cell::RefCell::new(Vec::new()) };
-
-    /// 上一帧**真正画到屏幕上**的悬浮球波形 —— 只在 Orb 模式下用(见 `orb_levels_changed`)。
-    static LAST_ORB_LEVELS: std::cell::RefCell<Option<Vec<f32>>> =
-        const { std::cell::RefCell::new(None) };
-
     /// 上一次 D2D 报错的时刻和内容。
     /// 窗口线程在设备丢失时会按 60fps 重试，不设限流会把控制台/日志刷爆。
     static LAST_D2D_ERR: std::cell::RefCell<Option<(std::time::Instant, String)>> =
@@ -1959,84 +2618,395 @@ fn d2d_paint_bar(hdc: isize, canvas: &Rect, clear: &[Rect], rc: &Rect, offset: (
     });
 }
 
-/// 悬浮球:圆形底 + 琥珀细环 + 实时波形。
-///
-/// ⚠️ 这里**没有任何时间项**:环是固定几何的(没有呼吸动画),九根柱的高度只由
-/// `levels` 决定 —— 所以「levels 没变就不用重画」这条门控是完备的(见 `orb_levels_changed`)。
-/// 以后真给球加了呼吸/旋转之类的逐帧动画,**必须**同时改那条门控,否则动画会停住。
-///
-/// 波形是**真实音量**驱动的（见 `Overlay::push_level`），不是装饰动画 ——
-/// 用户说话时才会起伏，安静时是一条平线。
-fn d2d_paint_orb(hdc: isize, canvas: &Rect, clear: &[Rect], rc: &Rect, offset: (f32, f32), levels: &[f32]) {
-    use windows::Win32::Graphics::Direct2D as d2d;
-    use windows::Win32::Graphics::Direct2D::Common as d2dc;
-
-    with_target(hdc, canvas, clear, offset, |t| unsafe {
-        let target = t.target;
-        let d = (rc.right - rc.left) as f32;
-        let c = d / 2.0;
-        let r = c - px(2) as f32;
-
-        // 底：实心圆
-        if let Ok(b) = target.CreateSolidColorBrush(&argb(ORB_BG) as *const _, None) {
-            target.FillEllipse(
-                &d2d::D2D1_ELLIPSE {
-                    point: d2dc::D2D_POINT_2F { x: c, y: c },
-                    radiusX: r,
-                    radiusY: r,
-                },
-                &b,
-            );
+/// 悬浮声波（方案 04 纯净版）：无黑底、无胶囊边框、无外圈光雾，仅保留中央 3 条流体弦波 + 亮白芯丝。
+/// 左右两端平滑收束归零，说话淡入、停说淡出，支持改配色（仅改弦波自身色彩）与左键拖动位置。
+fn orb_silk_palette(tint: HaloTint, t_sec: f32) -> [(f32, f32, f32); 3] {
+    match tint {
+        HaloTint::Rainbow => {
+            let h = t_sec * 0.18;
+            [
+                hue_to_rgb(h.rem_euclid(1.0)),
+                hue_to_rgb((h + 0.33).rem_euclid(1.0)),
+                hue_to_rgb((h + 0.66).rem_euclid(1.0)),
+            ]
         }
-        // 环：琥珀细边
-        if let Ok(b) = target.CreateSolidColorBrush(&argb(ORB_RING) as *const _, None) {
-            target.DrawEllipse(
-                &d2d::D2D1_ELLIPSE {
-                    point: d2dc::D2D_POINT_2F { x: c, y: c },
-                    radiusX: r,
-                    radiusY: r,
-                },
-                &b,
-                px(2) as f32,
-                None,
-            );
+        HaloTint::Siri => [
+            (56.0 / 255.0, 189.0 / 255.0, 248.0 / 255.0),
+            (244.0 / 255.0, 114.0 / 255.0, 182.0 / 255.0),
+            (163.0 / 255.0, 230.0 / 255.0, 53.0 / 255.0),
+        ],
+        HaloTint::Cyberpunk => [
+            (0.0 / 255.0, 245.0 / 255.0, 212.0 / 255.0),
+            (255.0 / 255.0, 42.0 / 255.0, 133.0 / 255.0),
+            (168.0 / 255.0, 85.0 / 255.0, 247.0 / 255.0),
+        ],
+        HaloTint::Sunset => [
+            (251.0 / 255.0, 191.0 / 255.0, 36.0 / 255.0),
+            (244.0 / 255.0, 63.0 / 255.0, 94.0 / 255.0),
+            (249.0 / 255.0, 115.0 / 255.0, 22.0 / 255.0),
+        ],
+        HaloTint::Emerald => [
+            (110.0 / 255.0, 231.0 / 255.0, 183.0 / 255.0),
+            (16.0 / 255.0, 185.0 / 255.0, 129.0 / 255.0),
+            (6.0 / 255.0, 182.0 / 255.0, 212.0 / 255.0),
+        ],
+        HaloTint::Violet => [
+            (192.0 / 255.0, 132.0 / 255.0, 252.0 / 255.0),
+            (217.0 / 255.0, 70.0 / 255.0, 239.0 / 255.0),
+            (99.0 / 255.0, 102.0 / 255.0, 241.0 / 255.0),
+        ],
+        HaloTint::Cyan => [
+            (34.0 / 255.0, 211.0 / 255.0, 238.0 / 255.0),
+            (45.0 / 255.0, 212.0 / 255.0, 191.0 / 255.0),
+            (59.0 / 255.0, 130.0 / 255.0, 246.0 / 255.0),
+        ],
+        HaloTint::Blue => [
+            (56.0 / 255.0, 189.0 / 255.0, 248.0 / 255.0),
+            (59.0 / 255.0, 130.0 / 255.0, 246.0 / 255.0),
+            (129.0 / 255.0, 140.0 / 255.0, 248.0 / 255.0),
+        ],
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+unsafe fn paint_orb_silk_wave(
+    bits: *mut u8,
+    sw: i32,
+    sh: i32,
+    panel: &Rect,
+    orb_alpha: f32,
+    env: f32,
+    bass: f32,
+    mid: f32,
+    treble: f32,
+    s: f32,
+) {
+    paint_orb_silk_wave_at(
+        bits,
+        sw,
+        sh,
+        panel,
+        orb_alpha,
+        env,
+        bass,
+        mid,
+        treble,
+        halo_clock_secs() as f32,
+        halo_tint(),
+        s,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+unsafe fn paint_orb_silk_wave_at(
+    bits: *mut u8,
+    sw: i32,
+    sh: i32,
+    panel: &Rect,
+    orb_alpha: f32,
+    env: f32,
+    bass: f32,
+    mid: f32,
+    treble: f32,
+    t_sec: f32,
+    tint: HaloTint,
+    s: f32,
+) {
+    let orb_alpha = orb_alpha.clamp(0.0, 1.0);
+    if orb_alpha <= 0.004 || bits.is_null() || sw <= 0 || sh <= 0 {
+        return;
+    }
+    let pw = (panel.right - panel.left).max(0);
+    let ph = (panel.bottom - panel.top).max(0);
+    if pw <= 0 || ph <= 0 {
+        return;
+    }
+    let x_lo = panel.left.clamp(0, sw);
+    let x_hi = panel.right.clamp(0, sw);
+    let y_lo = panel.top.clamp(0, sh);
+    let y_hi = panel.bottom.clamp(0, sh);
+    if x_hi <= x_lo || y_hi <= y_lo {
+        return;
+    }
+
+    let s = s.max(0.5);
+    let cols = orb_silk_palette(tint, t_sec);
+    let cy = panel.top as f32 + ph as f32 * 0.5;
+    let max_amp = ph as f32 * 0.44;
+    let amp_drive = 0.08 + 0.92 * env.clamp(0.0, 1.0).sqrt();
+
+    let ribbons = [
+        (cols[0], 2.55f32, 5.2f32, 0.0f32, max_amp * (0.28 + bass.clamp(0.0, 1.0) * 0.72) * amp_drive),
+        (cols[1], 3.75f32, -6.7f32, 1.75f32, max_amp * (0.25 + mid.clamp(0.0, 1.0) * 0.75) * amp_drive),
+        (cols[2], 5.15f32, 8.1f32, 3.45f32, max_amp * (0.22 + treble.clamp(0.0, 1.0) * 0.78) * amp_drive),
+    ];
+    let core_amp = max_amp * (0.12 + env.clamp(0.0, 1.0) * 0.64) * amp_drive;
+    let core_freq = 4.0f32;
+    let core_speed = -9.0f32;
+
+    let col_count = (x_hi - x_lo) as usize;
+    // 栈复用（常见宽度 <= 1024px，超出才堆分配）：预计算每列各弦波的 y 与斜率法线缩放
+    thread_local! {
+        static WAVE_COLS: std::cell::RefCell<Vec<[f32; 9]>> = const { std::cell::RefCell::new(Vec::new()) };
+    }
+    WAVE_COLS.with(|slot| {
+        let mut buf = slot.borrow_mut();
+        buf.clear();
+        buf.reserve(col_count);
+        let inv_pw = 1.0 / pw as f32;
+        let pi = std::f32::consts::PI;
+        let eval_wave = |u: f32, freq: f32, speed: f32, phase: f32, amp: f32| -> f32 {
+            let s_u = (u * pi).sin().max(0.0);
+            let env_u = s_u.powf(1.45);
+            let osc = (u * pi * freq + t_sec * speed + phase).sin();
+            cy + osc * env_u * amp
+        };
+        for px in x_lo..x_hi {
+            let u = ((px - panel.left) as f32 + 0.5) * inv_pw;
+            let taper = (u * pi).sin().max(0.0).powf(1.35);
+            let u_next = (u + inv_pw).min(1.0);
+
+            let y0 = eval_wave(u, ribbons[0].1, ribbons[0].2, ribbons[0].3, ribbons[0].4);
+            let y0n = eval_wave(u_next, ribbons[0].1, ribbons[0].2, ribbons[0].3, ribbons[0].4);
+            let n0 = 1.0 / (1.0 + (y0n - y0) * (y0n - y0)).sqrt();
+
+            let y1 = eval_wave(u, ribbons[1].1, ribbons[1].2, ribbons[1].3, ribbons[1].4);
+            let y1n = eval_wave(u_next, ribbons[1].1, ribbons[1].2, ribbons[1].3, ribbons[1].4);
+            let n1 = 1.0 / (1.0 + (y1n - y1) * (y1n - y1)).sqrt();
+
+            let y2 = eval_wave(u, ribbons[2].1, ribbons[2].2, ribbons[2].3, ribbons[2].4);
+            let y2n = eval_wave(u_next, ribbons[2].1, ribbons[2].2, ribbons[2].3, ribbons[2].4);
+            let n2 = 1.0 / (1.0 + (y2n - y2) * (y2n - y2)).sqrt();
+
+            let yc = eval_wave(u, core_freq, core_speed, 0.5, core_amp);
+            let ycn = eval_wave(u_next, core_freq, core_speed, 0.5, core_amp);
+            let nc = 1.0 / (1.0 + (ycn - yc) * (ycn - yc)).sqrt();
+
+            buf.push([taper, y0, n0, y1, n1, y2, n2, yc, nc]);
         }
 
-        // 波形：在球心横排若干竖条，高度由最近几帧音量决定
-        let n = ORB_BARS;
-        let bar_w = px(ORB_BAR_W) as f32;
-        let gap = px(ORB_BAR_GAP) as f32;
-        let total = n as f32 * bar_w + (n as f32 - 1.0) * gap;
-        let x0 = c - total / 2.0;
-        let max_h = px(ORB_BAR_MAX_H) as f32;
-        let min_h = px(ORB_BAR_MIN_H) as f32;
+        let inv_s = 1.0 / s;
+        let sw_u = sw as usize;
+        let curtain_base = 0.25 + env * 0.25;
+        let strand_base = 0.92 + env * 0.08;
+        let glow_base = 0.22 + env * 0.24;
+        let half_h = ph as f32 * 0.5;
+        let half_w = pw as f32 * 0.5;
+        let cx_abs = panel.left as f32 + half_w;
 
-        if let Ok(b) = target.CreateSolidColorBrush(&argb(ACCENT) as *const _, None) {
-            for i in 0..n {
-                // 取最近 n 帧；不够就用 0 补齐（刚开球时是一条平线，符合预期）
-                let lv = levels
-                    .get(levels.len().saturating_sub(n) + i)
-                    .copied()
-                    .unwrap_or(0.0);
-                // 开方压一下动态范围：小声说话也能看出起伏
-                let bh = min_h + (max_h - min_h) * lv.sqrt();
-                let x = x0 + i as f32 * (bar_w + gap);
-                let rect = d2dc::D2D_RECT_F {
-                    left: x,
-                    top: c - bh / 2.0,
-                    right: x + bar_w,
-                    bottom: c + bh / 2.0,
-                };
-                // 圆角竖条比直角好看，半径取半宽
-                let rr = d2d::D2D1_ROUNDED_RECT {
-                    rect,
-                    radiusX: bar_w / 2.0,
-                    radiusY: bar_w / 2.0,
-                };
-                target.FillRoundedRectangle(&rr, &b);
+        for py in y_lo..y_hi {
+            let fy = py as f32 + 0.5;
+            let dy_norm = (fy - cy) / half_h.max(1.0);
+            let row_ptr = bits.add((py as usize) * sw_u * 4) as *mut u32;
+            for (idx, px) in (x_lo..x_hi).enumerate() {
+                let [taper, y0, n0, y1, n1, y2, n2, yc, nc] = *buf.get_unchecked(idx);
+                let dx_norm = ((px as f32 + 0.5) - cx_abs) / half_w.max(1.0);
+                let in_hit_ellipse = dx_norm * dx_norm + dy_norm * dy_norm <= 0.96;
+                if taper <= 0.002 {
+                    continue;
+                }
+
+                let mut acc_r = 0.0f32;
+                let mut acc_g = 0.0f32;
+                let mut acc_b = 0.0f32;
+                let mut acc_a = 0.0f32;
+                let mut shadow_a = 0.0f32;
+
+                let ys = [(ribbons[0].0, y0, n0), (ribbons[1].0, y1, n1), (ribbons[2].0, y2, n2)];
+                for (col, yk, nk) in ys {
+                    // 1) 弦波与中心轴之间的半透明丝绸垂幕
+                    let lo = yk.min(cy);
+                    let hi = yk.max(cy);
+                    let span = (hi - lo).max(0.5);
+                    if fy >= lo - 1.0 && fy <= hi + 1.0 && span > 0.8 {
+                        let aa_lo = (fy - (lo - 0.8)).clamp(0.0, 1.0);
+                        let aa_hi = ((hi + 0.8) - fy).clamp(0.0, 1.0);
+                        let curtain = aa_lo.min(aa_hi) * curtain_base * taper;
+                        acc_r += col.0 * curtain;
+                        acc_g += col.1 * curtain;
+                        acc_b += col.2 * curtain;
+                        acc_a = (acc_a + curtain * 0.72).min(1.0);
+                    }
+
+                    // 2) 弦波主体 + 紧贴波峰的柔和自发光（无外框/无大椭圆晕）
+                    let perp_dp = (fy - yk).abs() * nk * inv_s;
+                    if perp_dp < 5.5 {
+                        let strand = smoothstep(1.55, 0.12, perp_dp) * strand_base * taper;
+                        let self_glow = (-perp_dp * perp_dp * 0.24).exp() * glow_base * taper;
+                        let w_c = strand + self_glow;
+                        acc_r += col.0 * w_c;
+                        acc_g += col.1 * w_c;
+                        acc_b += col.2 * w_c;
+                        acc_a = (acc_a + strand * 0.92 + self_glow * 0.55).min(1.0);
+                        // 极微弱的紧贴丝线暗衬，保证在纯白 Word 上依然清晰锐利（绝不形成框）
+                        shadow_a = shadow_a.max((-perp_dp * perp_dp * 0.42).exp() * 0.16 * taper);
+                    }
+                }
+
+                // 3) 穿行中心的亮白载波细丝
+                let perp_c = (fy - yc).abs() * nc * inv_s;
+                if perp_c < 3.6 {
+                    let c_line = smoothstep(1.12, 0.06, perp_c) * (0.72 + 0.28 * env) * taper;
+                    let c_glow = (-perp_c * perp_c * 0.55).exp() * (0.20 + 0.24 * env) * taper;
+                    let cw = c_line + c_glow;
+                    acc_r += 1.0 * cw;
+                    acc_g += 0.99 * cw;
+                    acc_b += 0.98 * cw;
+                    acc_a = (acc_a + c_line * 0.95 + c_glow * 0.55).min(1.0);
+                    shadow_a = shadow_a.max((-perp_c * perp_c * 0.50).exp() * 0.14 * taper);
+                }
+
+                // 仅在有效透明度足够高时写色；拖动命中椭圆内保底 alpha=1
+                let total_a = (acc_a.max(shadow_a) * orb_alpha).clamp(0.0, 1.0);
+                let a_floor = if orb_alpha > 0.04 && in_hit_ellipse { 1u8 } else { 0u8 };
+                let a_u8 = ((total_a * 255.0 + 0.5) as u8).max(a_floor);
+                if a_u8 == 0 {
+                    continue;
+                }
+                // 把略超 1.0 的叠加色温和压回 0..total_a，保留高光饱和芯同时满足预乘 BGRA 约束
+                let max_c = acc_r.max(acc_g).max(acc_b);
+                let norm = if max_c > 1.0 { 1.0 / max_c } else { 1.0 };
+                let r_u8 = ((acc_r * norm * orb_alpha * 255.0 + 0.5).clamp(0.0, a_u8 as f32)) as u8;
+                let g_u8 = ((acc_g * norm * orb_alpha * 255.0 + 0.5).clamp(0.0, a_u8 as f32)) as u8;
+                let b_u8 = ((acc_b * norm * orb_alpha * 255.0 + 0.5).clamp(0.0, a_u8 as f32)) as u8;
+                *row_ptr.add(px as usize) = ((a_u8 as u32) << 24)
+                    | ((r_u8 as u32) << 16)
+                    | ((g_u8 as u32) << 8)
+                    | (b_u8 as u32);
             }
         }
     });
+}
+
+unsafe fn paint_orb_white_ring(
+    bits: *mut u8,
+    sw: i32,
+    sh: i32,
+    panel: &Rect,
+    orb_alpha: f32,
+    env: f32,
+    s: f32,
+) {
+    paint_orb_white_ring_at(
+        bits,
+        sw,
+        sh,
+        panel,
+        orb_alpha,
+        env,
+        halo_clock_secs() as f32,
+        s,
+    );
+}
+
+/// 纯白流体圆环（Mode::Ring）：无底色、无反色、中心 100% 透明穿透，
+/// 仅保留一根微微发光、随声音柔和流体形变的纯白细丝闭环。
+#[allow(clippy::too_many_arguments)]
+unsafe fn paint_orb_white_ring_at(
+    bits: *mut u8,
+    sw: i32,
+    sh: i32,
+    panel: &Rect,
+    orb_alpha: f32,
+    env: f32,
+    t_sec: f32,
+    s: f32,
+) {
+    let orb_alpha = orb_alpha.clamp(0.0, 1.0);
+    if orb_alpha <= 0.004 || bits.is_null() || sw <= 0 || sh <= 0 {
+        return;
+    }
+    let pw = (panel.right - panel.left).max(0);
+    let ph = (panel.bottom - panel.top).max(0);
+    if pw <= 0 || ph <= 0 {
+        return;
+    }
+    let x_lo = panel.left.clamp(0, sw);
+    let x_hi = panel.right.clamp(0, sw);
+    let y_lo = panel.top.clamp(0, sh);
+    let y_hi = panel.bottom.clamp(0, sh);
+    if x_hi <= x_lo || y_hi <= y_lo {
+        return;
+    }
+
+    let s = s.max(0.5);
+    let inv_s = 1.0 / s;
+    let env_s = env.clamp(0.0, 1.0);
+    let cx = panel.left as f32 + pw as f32 * 0.5;
+    let cy = panel.top as f32 + ph as f32 * 0.5;
+    let min_dim = pw.min(ph) as f32;
+    let base_r = min_dim * 0.27;
+    let amp = base_r * (0.038 + 0.22 * env_s);
+    let breath = (t_sec * 1.65).sin() * base_r * 0.025 + env_s * base_r * 0.16;
+    let hit_r = (base_r * 1.60).min(min_dim * 0.48);
+
+    // 预计算 256 个极角采样点 (r_theta, norm_k)，每像素零三角函数
+    const N: usize = 256;
+    let mut lut = [(0.0f32, 1.0f32); N + 1];
+    let two_pi = std::f32::consts::TAU;
+    for i in 0..=N {
+        let th = (i as f32 / N as f32) * two_pi;
+        let w2 = (2.0 * th + t_sec * 1.35).sin() * 0.48;
+        let w3 = (3.0 * th - t_sec * 1.85 + 1.1).sin() * 0.30;
+        let w4 = (4.0 * th + t_sec * 2.45 + 2.4).sin() * 0.15;
+        let w5 = (5.0 * th - t_sec * 3.0 + 0.7).sin() * 0.07 * env_s;
+        let r_th = (base_r + breath + amp * (w2 + w3 + w4 + w5)).clamp(base_r * 0.62, min_dim * 0.45);
+        let dr = amp
+            * (2.0 * (2.0 * th + t_sec * 1.35).cos() * 0.48
+                + 3.0 * (3.0 * th - t_sec * 1.85 + 1.1).cos() * 0.30
+                + 4.0 * (4.0 * th + t_sec * 2.45 + 2.4).cos() * 0.15
+                + 5.0 * (5.0 * th - t_sec * 3.0 + 0.7).cos() * 0.07 * env_s);
+        let norm_k = r_th / (r_th * r_th + dr * dr).sqrt();
+        lut[i] = (r_th, norm_k);
+    }
+
+    let sw_u = sw as usize;
+    let core_boost = 0.86 + 0.14 * env_s;
+    let glow_boost = 0.28 + 0.42 * env_s;
+    for py in y_lo..y_hi {
+        let dy = (py as f32 + 0.5) - cy;
+        let row_ptr = bits.add((py as usize) * sw_u * 4) as *mut u32;
+        for px in x_lo..x_hi {
+            let dx = (px as f32 + 0.5) - cx;
+            let dist = (dx * dx + dy * dy).sqrt();
+            if dist > hit_r + 6.0 * s {
+                continue;
+            }
+            let mut th = dy.atan2(dx);
+            if th < 0.0 {
+                th += two_pi;
+            }
+            let f_idx = (th / two_pi) * N as f32;
+            let i0 = (f_idx as usize) & (N - 1);
+            let frac = f_idx - (f_idx as usize) as f32;
+            let (r0, k0) = *lut.get_unchecked(i0);
+            let (r1, k1) = *lut.get_unchecked(i0 + 1);
+            let r_th = r0 + (r1 - r0) * frac;
+            let norm_k = k0 + (k1 - k0) * frac;
+            let perp_dp = ((dist - r_th).abs() * norm_k) * inv_s;
+
+            let (white_w, shadow_a) = if perp_dp < 6.8 {
+                let core = smoothstep(1.38, 0.16, perp_dp) * core_boost;
+                let glow = (-perp_dp * perp_dp * 0.15).exp() * glow_boost;
+                let shadow = (-perp_dp * perp_dp * 0.55).exp() * 0.11;
+                ((core + glow).min(1.0), shadow)
+            } else {
+                (0.0, 0.0)
+            };
+
+            let a_floor = if orb_alpha > 0.04 && dist <= hit_r { 1u8 } else { 0u8 };
+            let total_a = (white_w.max(shadow_a) * orb_alpha).clamp(0.0, 1.0);
+            let a_u8 = ((total_a * 255.0 + 0.5) as u8).max(a_floor);
+            if a_u8 == 0 {
+                continue;
+            }
+            let w_u8 = ((white_w * orb_alpha * 255.0 + 0.5).clamp(0.0, a_u8 as f32)) as u8;
+            *row_ptr.add(px as usize) = ((a_u8 as u32) << 24)
+                | ((w_u8 as u32) << 16)
+                | ((w_u8 as u32) << 8)
+                | (w_u8 as u32);
+        }
+    }
 }
 
 fn argb(c: u32) -> windows::Win32::Graphics::Direct2D::Common::D2D1_COLOR_F {
@@ -2384,7 +3354,7 @@ fn hue_to_rgb(h: f32) -> (f32, f32, f32) {
 
 // ------------------------------------------------------------------ 流光光晕 (Halo)
 
-const HALO_CELL_DP: f32 = 5.0;
+const HALO_CELL_DP: f32 = 7.0;
 
 struct HaloCache {
     gw: usize,
@@ -2393,13 +3363,13 @@ struct HaloCache {
     s_lut: f32,
     pad_lut: usize,
     reach_lut: usize,
-    l1: Vec<[f32; 4]>,
-    l2: Vec<[f32; 4]>,
-    blur_scratch: Vec<[f32; 4]>,
-    col_acc: Vec<[f32; 4]>,
+    dot_grid: Vec<[f32; 2]>,
     l1_u64: Vec<u64>,
     row_mix: Vec<u64>,
     w_lut: Vec<(u16, u16)>,
+    dot_x_cell: Vec<i32>,
+    dot_spacing_px: usize,
+    dot_size_px: usize,
     full_runs: Vec<(u16, u16, u16)>,
     left_runs: Vec<(u16, u16, u16)>,
     right_runs: Vec<(u16, u16, u16)>,
@@ -2426,19 +3396,16 @@ fn build_gx_runs(gx_of_px: &[u16], x_lo: usize, x_hi: usize, out: &mut Vec<(u16,
 impl HaloCache {
     fn prepare(&mut self, gw: usize, gh: usize, sw: usize, pad_c: usize, reach_u: usize, s: f32) {
         let need = gw * gh;
-        if self.gw != gw || self.gh != gh || self.l1.len() != need {
+        if self.gw != gw || self.gh != gh || self.dot_grid.len() != need {
             self.gw = gw;
             self.gh = gh;
-            self.l1.resize(need, [0.0; 4]);
-            self.l2.resize(need, [0.0; 4]);
-            self.blur_scratch.resize(need, [0.0; 4]);
-            self.col_acc.resize(gw, [0.0; 4]);
+            self.dot_grid.resize(need, [0.0; 2]);
             self.l1_u64.resize(need, 0);
             self.row_mix.resize(gw, 0);
         }
         unsafe {
-            std::ptr::write_bytes(self.l1.as_mut_ptr(), 0, need);
-            std::ptr::write_bytes(self.l2.as_mut_ptr(), 0, need);
+            std::ptr::write_bytes(self.dot_grid.as_mut_ptr(), 0, need);
+            std::ptr::write_bytes(self.l1_u64.as_mut_ptr(), 0, need);
         }
         if self.sw_lut != sw as i32
             || (self.s_lut - s).abs() > 1e-4
@@ -2465,6 +3432,19 @@ impl HaloCache {
                 self.w_lut.push((w0, w1));
                 gx_of_px.push(gx0 as u16);
             }
+            let spacing_px = (8.0 * s).round().max(4.0) as usize;
+            let dot_px = (2.0 * s).round().max(1.0) as usize;
+            self.dot_spacing_px = spacing_px;
+            self.dot_size_px = dot_px;
+            self.dot_x_cell.clear();
+            self.dot_x_cell.reserve(sw);
+            for px in 0..sw {
+                if (px % spacing_px) < dot_px {
+                    self.dot_x_cell.push((px / spacing_px) as i32);
+                } else {
+                    self.dot_x_cell.push(-1);
+                }
+            }
             build_gx_runs(&gx_of_px, 0, sw, &mut self.full_runs);
             build_gx_runs(&gx_of_px, 0, reach_u, &mut self.left_runs);
             build_gx_runs(
@@ -2486,10 +3466,9 @@ fn halo_reach_dp(cfg: &GlowConfig) -> f32 {
     (1.15 * cfg.peak_thickness + 1.65 * cfg.blur_radius + 2.0 * HALO_CELL_DP).clamp(48.0, 260.0)
 }
 
-fn halo_reach_px(sw: i32, sh: i32, s: f32) -> i32 {
-    let cfg = halo_config();
+fn halo_reach_px_cfg(cfg: &GlowConfig, sw: i32, sh: i32, s: f32) -> i32 {
     let s = s.max(0.5);
-    let reach_dp = halo_reach_dp(&cfg);
+    let reach_dp = halo_reach_dp(cfg);
     ((reach_dp * s).ceil() as i32).min(sw / 2).min(sh / 2).max(0)
 }
 
@@ -2507,231 +3486,83 @@ fn lerp3(a: (f32, f32, f32), b: (f32, f32, f32), t: f32) -> (f32, f32, f32) {
 }
 
 #[inline]
-fn halo_wave_thickness(norm_s: f32, ph_w1: f32, ph_w2: f32, cfg: &GlowConfig) -> f32 {
-    let w1 = (norm_s * std::f32::consts::TAU * 2.0 - ph_w1).sin();
-    let w2 = (norm_s * std::f32::consts::TAU + ph_w2).sin();
-    let base = (0.5 + 0.35 * w1 + 0.15 * w2).max(0.0);
-    let wave = base.powf(1.8) * cfg.dynamics + (1.0 - cfg.dynamics) * 0.5;
-    cfg.valley_thickness + (cfg.peak_thickness - cfg.valley_thickness) * wave
+fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
+    let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
 }
 
 #[inline]
-fn halo_perim_point(s: f32, dw: f32, dh: f32, per: f32) -> (f32, f32, f32, f32) {
-    let mut pos = s.rem_euclid(per);
-    if pos < dw {
-        return (pos, 0.0, 0.0, 1.0);
-    }
-    pos -= dw;
-    if pos < dh {
-        return (dw, pos, -1.0, 0.0);
-    }
-    pos -= dh;
-    if pos < dw {
-        return (dw - pos, dh, 0.0, -1.0);
-    }
-    pos -= dw;
-    (0.0, dh - pos, 1.0, 0.0)
+fn hash2i(ix: i32, iy: i32) -> f32 {
+    let mut h = (ix as u32).wrapping_mul(374_761_393)
+        ^ (iy as u32).wrapping_mul(668_265_263);
+    h = (h ^ (h >> 13)).wrapping_mul(1_274_126_177);
+    ((h ^ (h >> 16)) & 0x00FF_FFFF) as f32 * (1.0 / 16_777_215.0)
 }
 
 #[inline]
-fn halo_conic_color(
-    tint: HaloTint,
-    pal: ((f32, f32, f32), (f32, f32, f32), (f32, f32, f32)),
-    x: f32,
-    y: f32,
-    dw: f32,
-    dh: f32,
-    ph_conic: f32,
-) -> (f32, f32, f32) {
-    let ang = ((y - dh * 0.5).atan2(x - dw * 0.5) - ph_conic).rem_euclid(std::f32::consts::TAU);
-    let u = ang / std::f32::consts::TAU;
-    if tint == HaloTint::Rainbow {
-        return hue_to_rgb(u);
-    }
-    let (pri, hi, dep) = pal;
-    if u < 0.3 {
-        lerp3(pri, hi, u / 0.3)
-    } else if u < 0.6 {
-        lerp3(hi, dep, (u - 0.3) / 0.3)
-    } else {
-        lerp3(dep, pri, (u - 0.6) / 0.4)
-    }
+fn vnoise2(x: f32, y: f32) -> f32 {
+    let ix = x.floor() as i32;
+    let iy = y.floor() as i32;
+    let fx = x - ix as f32;
+    let fy = y - iy as f32;
+    let ux = fx * fx * (3.0 - 2.0 * fx);
+    let uy = fy * fy * (3.0 - 2.0 * fy);
+    let a = hash2i(ix, iy);
+    let b = hash2i(ix + 1, iy);
+    let c = hash2i(ix, iy + 1);
+    let d = hash2i(ix + 1, iy + 1);
+    let ab = a + (b - a) * ux;
+    let cd = c + (d - c) * ux;
+    ab + (cd - ab) * uy
 }
 
-fn box_blur_border(
-    buf: &mut [[f32; 4]],
-    blur_scratch: &mut [[f32; 4]],
-    col_acc: &mut [[f32; 4]],
-    gw: usize,
-    gh: usize,
-    band: usize,
-    r: usize,
-    passes: usize,
+/// 多倍频旋转 FBM 噪声（旋转八度消除轴向晶格感，保留烟雾卷曲轮廓）。
+fn fbm_smoke(mut x: f32, mut y: f32, octaves: usize) -> f32 {
+    let mut v = 0.0f32;
+    let mut amp = 0.5f32;
+    let mut total = 0.0f32;
+    for _ in 0..octaves {
+        v += amp * vnoise2(x, y);
+        total += amp;
+        let nx = (0.8 * x - 0.6 * y) * 2.02 + 11.3;
+        let ny = (0.6 * x + 0.8 * y) * 2.02 + 7.7;
+        x = nx;
+        y = ny;
+        amp *= 0.5;
+    }
+    v / total
+}
+
+/// 在整屏 DIB (`bits`, 32bpp premultiplied BGRA) 里绘制三层烟雾缭绕流光（域扭曲 FBM 烟雾 + 微点阵 + 高光细线）。
+unsafe fn paint_halo_with_cfg(
+    bits: *mut u8,
+    sw: i32,
+    sh: i32,
+    level: f32,
+    cfg: &GlowConfig,
+    s: f32,
 ) {
-    if r == 0 || gw == 0 || gh == 0 || passes == 0 {
-        return;
-    }
-    let inv = 1.0 / (2 * r + 1) as f32;
-    let bx = band.min(gw);
-    let by = band.min(gh);
-    let full_x = 2 * bx >= gw;
-    let full_y = 2 * by >= gh;
-
-    for _ in 0..passes {
-        // 水平方向（按行切片，消除边界检查）
-        for gy in 0..gh {
-            let row = gy * gw;
-            let src = &buf[row..row + gw];
-            let dst = &mut blur_scratch[row..row + gw];
-            let span_count = if full_x || gy < by || gy >= gh - by { 1 } else { 2 };
-            let spans = if span_count == 1 {
-                [(0, gw), (0, 0)]
-            } else {
-                [(0, bx), (gw - bx, gw)]
-            };
-            for &(x0, x1) in spans[..span_count].iter() {
-                let mut a0 = 0.0f32;
-                let mut a1 = 0.0f32;
-                let mut a2 = 0.0f32;
-                let mut a3 = 0.0f32;
-                let k_lo = (x0 as isize - r as isize).max(0) as usize;
-                let k_hi = (x0 + r).min(gw - 1);
-                for &p in &src[k_lo..=k_hi] {
-                    a0 += p[0];
-                    a1 += p[1];
-                    a2 += p[2];
-                    a3 += p[3];
-                }
-                for gx in x0..x1 {
-                    dst[gx] = [a0 * inv, a1 * inv, a2 * inv, a3 * inv];
-                    let ir = gx + r + 1;
-                    if ir < gw {
-                        let p = src[ir];
-                        a0 += p[0];
-                        a1 += p[1];
-                        a2 += p[2];
-                        a3 += p[3];
-                    }
-                    if gx >= r {
-                        let p = src[gx - r];
-                        a0 -= p[0];
-                        a1 -= p[1];
-                        a2 -= p[2];
-                        a3 -= p[3];
-                    }
-                }
-            }
-        }
-
-        // 垂直方向：按行顺序滑动列累加器，100% 顺序缓存命中
-        let v_span = |acc: &mut [[f32; 4]],
-                      tmp_ref: &[[f32; 4]],
-                      buf_mut: &mut [[f32; 4]],
-                      y0: usize,
-                      y1: usize,
-                      x0: usize,
-                      x1: usize| {
-            for gy in y0..y1 {
-                let out_row = &mut buf_mut[gy * gw..(gy + 1) * gw];
-                for gx in x0..x1 {
-                    let a = acc[gx];
-                    out_row[gx] = [a[0] * inv, a[1] * inv, a[2] * inv, a[3] * inv];
-                }
-                let ib = gy + r + 1;
-                if ib < gh {
-                    let add_row = &tmp_ref[ib * gw..(ib + 1) * gw];
-                    for gx in x0..x1 {
-                        let p = add_row[gx];
-                        acc[gx][0] += p[0];
-                        acc[gx][1] += p[1];
-                        acc[gx][2] += p[2];
-                        acc[gx][3] += p[3];
-                    }
-                }
-                if gy >= r {
-                    let sub_row = &tmp_ref[(gy - r) * gw..(gy - r + 1) * gw];
-                    for gx in x0..x1 {
-                        let p = sub_row[gx];
-                        acc[gx][0] -= p[0];
-                        acc[gx][1] -= p[1];
-                        acc[gx][2] -= p[2];
-                        acc[gx][3] -= p[3];
-                    }
-                }
-            }
-        };
-
-        for slot in col_acc.iter_mut() {
-            *slot = [0.0; 4];
-        }
-        let k0_hi = r.min(gh - 1);
-        for k in 0..=k0_hi {
-            let row_k = &blur_scratch[k * gw..(k + 1) * gw];
-            for gx in 0..gw {
-                let p = row_k[gx];
-                col_acc[gx][0] += p[0];
-                col_acc[gx][1] += p[1];
-                col_acc[gx][2] += p[2];
-                col_acc[gx][3] += p[3];
-            }
-        }
-        if full_y {
-            v_span(col_acc, blur_scratch, buf, 0, gh, 0, gw);
-        } else {
-            v_span(col_acc, blur_scratch, buf, 0, by, 0, gw);
-            if !full_x {
-                v_span(col_acc, blur_scratch, buf, by, gh - by, 0, bx);
-                let mid_k_lo = by.saturating_sub(r);
-                let mid_k_hi = (by + r).min(gh - 1);
-                for gx in (gw - bx)..gw {
-                    col_acc[gx] = [0.0; 4];
-                }
-                for k in mid_k_lo..=mid_k_hi {
-                    let row_k = &blur_scratch[k * gw..(k + 1) * gw];
-                    for gx in (gw - bx)..gw {
-                        let p = row_k[gx];
-                        col_acc[gx][0] += p[0];
-                        col_acc[gx][1] += p[1];
-                        col_acc[gx][2] += p[2];
-                        col_acc[gx][3] += p[3];
-                    }
-                }
-                v_span(col_acc, blur_scratch, buf, by, gh - by, gw - bx, gw);
-            } else {
-                v_span(col_acc, blur_scratch, buf, by, gh - by, 0, gw);
-            }
-            let bot_y0 = gh - by;
-            let bot_k_lo = bot_y0.saturating_sub(r);
-            let bot_k_hi = (bot_y0 + r).min(gh - 1);
-            for slot in col_acc.iter_mut() {
-                *slot = [0.0; 4];
-            }
-            for k in bot_k_lo..=bot_k_hi {
-                let row_k = &blur_scratch[k * gw..(k + 1) * gw];
-                for gx in 0..gw {
-                    let p = row_k[gx];
-                    col_acc[gx][0] += p[0];
-                    col_acc[gx][1] += p[1];
-                    col_acc[gx][2] += p[2];
-                    col_acc[gx][3] += p[3];
-                }
-            }
-            v_span(col_acc, blur_scratch, buf, bot_y0, gh, 0, gw);
-        }
-    }
+    paint_halo_with_time_cfg(bits, sw, sh, level, halo_clock_secs(), cfg, s);
 }
 
-/// 在整屏 DIB (`bits`, 32bpp premultiplied BGRA) 里绘制双层高斯流光光晕（不走 D2D，零设备资源创建）。
-unsafe fn paint_halo(bits: *mut u8, sw: i32, sh: i32, level: f32) {
-    paint_halo_with_time(bits, sw, sh, level, halo_clock_secs());
-}
-
+#[cfg(test)]
 unsafe fn paint_halo_with_time(bits: *mut u8, sw: i32, sh: i32, level: f32, raw_secs: f64) {
+    paint_halo_with_time_cfg(bits, sw, sh, level, raw_secs, &halo_config(), scale().max(0.5));
+}
+
+unsafe fn paint_halo_with_time_cfg(
+    bits: *mut u8,
+    sw: i32,
+    sh: i32,
+    level: f32,
+    raw_secs: f64,
+    cfg: &GlowConfig,
+    s: f32,
+) {
     if level <= 0.002 || sw <= 0 || sh <= 0 || bits.is_null() {
         return;
     }
-    let s = scale().max(0.5);
-    let cfg = halo_config();
+    let s = s.max(0.5);
     let tint = halo_tint();
     let pal = tint.palette();
     let (_, hi_col, _) = pal;
@@ -2740,28 +3571,30 @@ unsafe fn paint_halo_with_time(bits: *mut u8, sw: i32, sh: i32, level: f32, raw_
         return;
     }
 
-    let reach_px = halo_reach_px(sw, sh, s);
+    let reach_px = halo_reach_px_cfg(cfg, sw, sh, s);
     if reach_px <= 0 {
         return;
     }
 
     let dw = sw as f32 / s;
     let dh = sh as f32 / s;
-    let per = 2.0 * (dw + dh);
-    if per <= 1.0 {
+    if dw <= 1.0 || dh <= 1.0 {
         return;
     }
 
-    // 用 f64 取模避免长时间运行后 f32 相位丢失精度
+    // 用 f64 取模避免长时间运行后 f32 相位丢失精度；采用闭合圆周涡旋 + 沿四边循环滚动烟波（杜绝单向西北飘移）
     let t_s = raw_secs * cfg.flow_speed as f64;
-    let tau = std::f64::consts::TAU;
-    let ph_w1 = ((t_s * 2.2).rem_euclid(tau)) as f32;
-    let ph_w2 = ((t_s * 1.1).rem_euclid(tau)) as f32;
-    let ph_conic = ((t_s * 0.6).rem_euclid(tau)) as f32;
+    let t_f = (t_s.rem_euclid(std::f64::consts::TAU * 120.0)) as f32;
+    let orbit_ax = (t_f * 0.65).cos() * 0.78;
+    let orbit_ay = (t_f * 0.65).sin() * 0.78;
+    let orbit_bx = (t_f * 0.48 + 1.8).sin() * 0.64;
+    let orbit_by = (t_f * 0.54 + 0.7).cos() * 0.64;
+    let ph_cw = t_f * 1.75;
+    let ph_ccw = t_f * 1.20;
+    let ph_rad = t_f * 2.50;
+    let ph_conic = ((t_s * 0.5).rem_euclid(std::f64::consts::TAU)) as f32;
 
-    let r1 = (((cfg.blur_radius * 0.55) / HALO_CELL_DP - 0.3).round() as usize).clamp(1, 18);
-    let r2 = ((((cfg.blur_radius * 0.35).max(6.0) * 0.5) / HALO_CELL_DP).round() as usize).clamp(1, 8);
-    let pad_c = ((0.6 * cfg.peak_thickness / HALO_CELL_DP).ceil() as usize + r1 + 3).clamp(8, 26);
+    let pad_c = 2usize;
     let reach_dp = halo_reach_dp(&cfg);
     let reach_c = (reach_dp / HALO_CELL_DP).ceil() as usize + 2;
     let band = pad_c + reach_c;
@@ -2774,6 +3607,24 @@ unsafe fn paint_halo_with_time(bits: *mut u8, sw: i32, sh: i32, level: f32, raw_
     let sh_u = sh as usize;
     let reach_u = (reach_px as usize).min(sw_u / 2).min(sh_u / 2);
 
+    // 烟雾 3 色阶：暗谷深蓝 → 主体电光蓝 → 烟丝亮芯（保持高饱和冰青，浅深色桌面都不发白灰）
+    let c_deep = pal.2;
+    let c_mid = pal.0;
+    let c_bright = lerp3(pal.1, (0.75, 0.94, 1.0), 0.28);
+    let dot_col = lerp3(hi_col, (0.90, 0.97, 1.0), 0.55);
+    let dot_rgb_soft = (
+        (dot_col.0 * 255.0 + 0.5) as u32,
+        (dot_col.1 * 255.0 + 0.5) as u32,
+        (dot_col.2 * 255.0 + 0.5) as u32,
+    );
+    let aspect = (dw / dh).max(0.5);
+    let noise_scale = 5.0f32;
+    let dyn_mix = cfg.dynamics.clamp(0.0, 1.0);
+    let valley_ratio = (cfg.valley_thickness / reach_dp).clamp(0.06, 0.40);
+    let peak_ratio = (cfg.peak_thickness / 33.0).clamp(0.55, 1.65);
+    let half_dw = dw * 0.5;
+    let half_dh = dh * 0.5;
+
     HALO_CACHE.with(|slot| {
         let mut guard = slot.borrow_mut();
         let cache = guard.get_or_insert_with(|| HaloCache {
@@ -2783,207 +3634,130 @@ unsafe fn paint_halo_with_time(bits: *mut u8, sw: i32, sh: i32, level: f32, raw_
             s_lut: 0.0,
             pad_lut: 0,
             reach_lut: 0,
-            l1: Vec::new(),
-            l2: Vec::new(),
-            blur_scratch: Vec::new(),
-            col_acc: Vec::new(),
+            dot_grid: Vec::new(),
             l1_u64: Vec::new(),
             row_mix: Vec::new(),
             w_lut: Vec::new(),
+            dot_x_cell: Vec::new(),
+            dot_spacing_px: 8,
+            dot_size_px: 2,
             full_runs: Vec::new(),
             left_runs: Vec::new(),
             right_runs: Vec::new(),
         });
         cache.prepare(gw, gh, sw_u, pad_c, reach_u, s);
-        let step_dp = 22.0f32;
-        let n_splats = ((per / step_dp).round() as usize).max(100);
-        let splat_alpha_scale = (step_dp / 24.0).min(1.0);
-        for i in 0..n_splats {
-            let ns = i as f32 / n_splats as f32;
-            let s_pos = ns * per;
-            let (px, py, nx, ny) = halo_perim_point(s_pos, dw, dh, per);
-            let thickness = halo_wave_thickness(ns, ph_w1, ph_w2, &cfg);
-            let cx = px + nx * (0.3 * thickness);
-            let cy = py + ny * (0.3 * thickness);
-            let rad = (0.8 * thickness).max(2.0);
-            let rad2 = rad * rad;
-            let inv_rad = 1.0 / rad;
 
-            let gx_min = (((cx - rad) / HALO_CELL_DP + pad_c as f32).floor() as isize).max(0) as usize;
-            let gx_max = (((cx + rad) / HALO_CELL_DP + pad_c as f32).ceil() as usize).min(gw - 1);
-            let gy_min = (((cy - rad) / HALO_CELL_DP + pad_c as f32).floor() as isize).max(0) as usize;
-            let gy_max = (((cy + rad) / HALO_CELL_DP + pad_c as f32).ceil() as usize).min(gh - 1);
-
-            let splat_col = if tint == HaloTint::Rainbow {
-                let c_p = hue_to_rgb((ns - ph_conic / std::f32::consts::TAU).rem_euclid(1.0));
-                (c_p, lerp3(c_p, (1.0, 1.0, 1.0), 0.35))
-            } else {
-                (pal.0, pal.1)
-            };
-
-            for gy in gy_min..=gy_max {
-                let y = (gy as f32 - pad_c as f32 + 0.5) * HALO_CELL_DP;
-                let dy = y - cy;
-                let dy2 = dy * dy;
-                if dy2 > rad2 {
-                    continue;
-                }
-                let row_l1 = &mut cache.l1[gy * gw..(gy + 1) * gw];
-                for gx in gx_min..=gx_max {
-                    let x = (gx as f32 - pad_c as f32 + 0.5) * HALO_CELL_DP;
-                    let dx = x - cx;
-                    let d2 = dx * dx + dy2;
-                    if d2 > rad2 {
-                        continue;
-                    }
-                    let u = d2.sqrt() * inv_rad;
-                    let col = if u < 0.4 {
-                        lerp3(splat_col.1, splat_col.0, u * 2.5)
-                    } else {
-                        splat_col.0
-                    };
-                    let a = (if u < 0.4 { 1.0 } else { (1.0 - u) * (1.0 / 0.6) }) * splat_alpha_scale;
-                    if a <= 0.001 {
-                        continue;
-                    }
-                    let sr = col.0 * a;
-                    let sg = col.1 * a;
-                    let sb = col.2 * a;
-                    let dst = &mut row_l1[gx];
-                    dst[0] += sr - dst[0] * sr;
-                    dst[1] += sg - dst[1] * sg;
-                    dst[2] += sb - dst[2] * sb;
-                    dst[3] += a - dst[3] * a;
-                }
-            }
-        }
-
-        // 2. Layer 2: 近场柔光流波带（仅扫紧贴边缘的 band2，跳过屏中空白）
-        let half_dw = dw * 0.5;
-        let half_dh = dh * 0.5;
-        let max_rib = 0.55 * cfg.peak_thickness + HALO_CELL_DP;
-        let band2 = (pad_c + (max_rib * 1.45 / HALO_CELL_DP).ceil() as usize + 2).min(band);
-        let bx2 = band2.min(gw);
-        let by2 = band2.min(gh);
-        for gy in 0..gh {
-            let y = (gy as f32 - pad_c as f32 + 0.5) * HALO_CELL_DP;
-            if y < -HALO_CELL_DP || y > dh + HALO_CELL_DP {
-                continue;
-            }
-            let full_row = 2 * bx2 >= gw || gy < by2 || gy >= gh.saturating_sub(by2);
-            let row_l2 = &mut cache.l2[gy * gw..(gy + 1) * gw];
-            let mut write_cell = |gx: usize| {
-                let x = (gx as f32 - pad_c as f32 + 0.5) * HALO_CELL_DP;
-                if x < -HALO_CELL_DP || x > dw + HALO_CELL_DP {
-                    return;
-                }
-                let d_smooth = if x < 0.0 || x > dw || y < 0.0 || y > dh {
-                    let cx = x.clamp(0.0, dw);
-                    let cy = y.clamp(0.0, dh);
-                    -((x - cx) * (x - cx) + (y - cy) * (y - cy)).sqrt()
-                } else {
-                    let mx = x.min(dw - x);
-                    let my = y.min(dh - y);
-                    if mx > max_rib * 1.42 && my > max_rib * 1.42 {
-                        return;
-                    }
-                    let denom = (mx * mx + my * my).sqrt();
-                    if denom <= 1e-6 {
-                        0.0
-                    } else {
-                        (mx * my) / denom
-                    }
-                };
-                if d_smooth < -HALO_CELL_DP || d_smooth > max_rib {
-                    return;
-                }
-                let vx = x - half_dw;
-                let vy = y - half_dh;
-                let tx = if vx.abs() > 1e-5 { half_dw / vx.abs() } else { 1e9 };
-                let ty = if vy.abs() > 1e-5 { half_dh / vy.abs() } else { 1e9 };
-                let t_hit = tx.min(ty);
-                let bx_p = half_dw + vx * t_hit;
-                let by_p = half_dh + vy * t_hit;
-                let s_pos = if by_p <= 0.001 {
-                    bx_p
-                } else if bx_p >= dw - 0.001 {
-                    dw + by_p
-                } else if by_p >= dh - 0.001 {
-                    dw + dh + (dw - bx_p)
-                } else {
-                    2.0 * dw + dh + (dh - by_p)
-                };
-                let ns = (s_pos / per).rem_euclid(1.0);
-                let rib = 0.55 * halo_wave_thickness(ns, ph_w1, ph_w2, &cfg);
-                let cov = if d_smooth < 0.0 {
-                    (1.0 + d_smooth / HALO_CELL_DP).max(0.0)
-                } else if d_smooth > rib - 0.5 * HALO_CELL_DP {
-                    ((rib + 0.5 * HALO_CELL_DP - d_smooth) / HALO_CELL_DP).clamp(0.0, 1.0)
-                } else {
-                    1.0
-                };
-                if cov <= 0.001 {
-                    return;
-                }
-                let col = halo_conic_color(tint, pal, x, y, dw, dh, ph_conic);
-                row_l2[gx] = [col.0 * cov, col.1 * cov, col.2 * cov, cov];
-            };
-            if full_row {
-                for gx in 0..gw {
-                    write_cell(gx);
-                }
-            } else {
-                for gx in 0..bx2 {
-                    write_cell(gx);
-                }
-                for gx in (gw - bx2)..gw {
-                    write_cell(gx);
-                }
-            }
-        }
-
-        let band_l2 = (band2 + 3 * r2 + 1).min(band);
-        box_blur_border(&mut cache.l1, &mut cache.blur_scratch, &mut cache.col_acc, gw, gh, band, r1, 3);
-        box_blur_border(&mut cache.l2, &mut cache.blur_scratch, &mut cache.col_acc, gw, gh, band_l2, r2, 2);
-        // 2.5 粗网格完成 Screen 合成并直接打包为 10-bit×4 SWAR u64（零逐行 float→int 转换）
+        // 1. 粗网格计算域扭曲 FBM 烟雾（仅扫边框 band，跳过屏中 ~80% 空白）
         let bx_m = band.min(gw);
         let by_m = band.min(gh);
         let full_m = 2 * bx_m >= gw;
+        let inv_dw = 1.0 / dw;
+        let inv_dh = 1.0 / dh;
         for gy in 0..gh {
-            let row_start = gy * gw;
+            let y = (gy as f32 - pad_c as f32 + 0.5) * HALO_CELL_DP;
+            let y_clamped = y.clamp(0.0, dh);
+            let my = y_clamped.min(dh - y_clamped);
+            let dy_c = y_clamped - half_dh;
             let full_row = full_m || gy < by_m || gy >= gh.saturating_sub(by_m);
-            let merge_span = |l1: &[[f32; 4]], l2: &[[f32; 4]], out: &mut [u64], x0: usize, x1: usize| {
-                for gx in x0..x1 {
-                    let a = l1[row_start + gx];
-                    let b = l2[row_start + gx];
-                    let a1v = a[3] * eff_opacity;
-                    let a2v = b[3] * eff_opacity;
-                    let av = a1v + a2v - a1v * a2v;
-                    let a_q = (av.clamp(0.0, 1.0) * 1020.0 + 0.5) as u64;
-                    if a_q == 0 {
-                        out[row_start + gx] = 0;
-                        continue;
-                    }
-                    let r1v = a[0] * eff_opacity;
-                    let g1v = a[1] * eff_opacity;
-                    let b1v = a[2] * eff_opacity;
-                    let r2v = b[0] * eff_opacity;
-                    let g2v = b[1] * eff_opacity;
-                    let b2v = b[2] * eff_opacity;
-                    let rv = r1v + r2v - r1v * r2v;
-                    let gv = g1v + g2v - g1v * g2v;
-                    let bv = b1v + b2v - b1v * b2v;
-                    let r_q = ((rv.clamp(0.0, 1.0) * 1020.0 + 0.5) as u64).min(a_q);
-                    let g_q = ((gv.clamp(0.0, 1.0) * 1020.0 + 0.5) as u64).min(a_q);
-                    let b_q = ((bv.clamp(0.0, 1.0) * 1020.0 + 0.5) as u64).min(a_q);
-                    out[row_start + gx] = (a_q << 48) | (r_q << 32) | (g_q << 16) | b_q;
+            let row_start = gy * gw;
+
+            let eval_cell = |gx: usize, dot_grid: &mut [[f32; 2]], l1_u64: &mut [u64]| {
+                let x = (gx as f32 - pad_c as f32 + 0.5) * HALO_CELL_DP;
+                let x_clamped = x.clamp(0.0, dw);
+                let mx = x_clamped.min(dw - x_clamped);
+                if mx >= reach_dp && my >= reach_dp {
+                    return;
                 }
+                let d_edge = if mx < reach_dp && my < reach_dp {
+                    let rx = reach_dp - mx;
+                    let ry = reach_dp - my;
+                    (reach_dp - (rx * rx + ry * ry).sqrt()).max(0.0)
+                } else {
+                    mx.min(my)
+                };
+                if d_edge >= reach_dp {
+                    return;
+                }
+                let corner_boost = ((1.0 - (mx / reach_dp).clamp(0.0, 1.0))
+                    * (1.0 - (my / reach_dp).clamp(0.0, 1.0)))
+                .sqrt()
+                    * 0.25;
+
+                // 闭合圆周涡旋 + 绕四边顺/逆时针循环滚动烟波 + 径向呼吸波
+                let ang = dy_c.atan2(x_clamped - half_dw);
+                let px = x_clamped * inv_dw * noise_scale * aspect + orbit_ax;
+                let py = y_clamped * inv_dh * noise_scale + orbit_ay;
+                let qx = fbm_smoke(px, py, 2) - 0.5;
+                let qy = fbm_smoke(px + 5.2, py + 1.3, 2) - 0.5;
+                let n_warp = fbm_smoke(px + qx * 1.85 + orbit_bx, py + qy * 1.85 + orbit_by, 3);
+                let n_wisp = fbm_smoke(
+                    px * 2.20 - qx * 0.95 - orbit_bx * 1.1,
+                    py * 2.20 - qy * 0.95 - orbit_by * 1.1,
+                    2,
+                );
+                let w_cw = 0.5 + 0.5 * (ang * 3.0 - ph_cw + n_warp * 3.2).sin();
+                let w_ccw = 0.5 + 0.5 * (ang * 2.0 + ph_ccw - n_wisp * 2.4).sin();
+                let w_rad = 0.5 + 0.5 * (d_edge * 0.068 - ph_rad + ang).sin();
+                let wave_mod = 0.48 + 0.32 * w_cw + 0.20 * w_ccw;
+                let smoke_raw = (n_warp * 0.62 + n_wisp * 0.24 + w_rad * 0.14) * (0.72 + 0.42 * wave_mod);
+                let t_smoke = ((smoke_raw - 0.44) * (1.95 + 0.95 * dyn_mix) + 0.50).clamp(0.0, 1.0);
+
+                let local_reach = reach_dp
+                    * (valley_ratio + (0.54 * peak_ratio - valley_ratio) * (0.24 + 0.76 * t_smoke))
+                    * (1.0 + corner_boost);
+                let norm_d = (d_edge / local_reach.max(6.0)).clamp(0.0, 4.0);
+                let env_mist = (-norm_d.powf(1.45)).exp();
+                let env_plume = (-(d_edge / (local_reach * 0.42).max(4.0)).powf(1.25)).exp()
+                    * smoothstep(0.30, 0.88, t_smoke);
+                let hard_cut = smoothstep(reach_dp, reach_dp * 0.64, d_edge);
+                let a_smoke = ((env_mist * (0.18 + 0.44 * t_smoke) + env_plume * 0.42) * hard_cut * eff_opacity)
+                    .clamp(0.0, 0.84);
+
+                if a_smoke > 0.002 {
+                    let col = if tint == HaloTint::Rainbow {
+                        let h = (ang / std::f32::consts::TAU - ph_conic / std::f32::consts::TAU + t_smoke * 0.16).rem_euclid(1.0);
+                        let base = hue_to_rgb(h);
+                        lerp3(base, (0.90, 0.97, 1.0), env_plume * 0.48)
+                    } else if tint == HaloTint::Cyberpunk {
+                        // 赛博霓虹：电光青 ↔ 紫外紫 ↔ 热品红 沿四边巡游碰撞，亮芯注入冰青白光
+                        let wave = 0.5 + 0.5 * (ang * 2.0 - ph_conic * 1.4 + n_warp * 2.6).sin();
+                        let neon = if wave < 0.45 {
+                            lerp3(c_deep, c_mid, wave / 0.45)
+                        } else {
+                            lerp3(c_mid, hi_col, (wave - 0.45) / 0.55)
+                        };
+                        lerp3(neon, (0.72, 0.98, 1.0), env_plume * 0.45)
+                    } else {
+                        let ct = (t_smoke * 0.56 + env_plume * 0.52).clamp(0.0, 1.0);
+                        if ct < 0.5 {
+                            lerp3(c_deep, c_mid, ct * 2.0)
+                        } else {
+                            lerp3(c_mid, c_bright, (ct - 0.5) * 2.0)
+                        }
+                    };
+                    let a_q = (a_smoke * 1020.0 + 0.5) as u64;
+                    let r_q = ((col.0 * a_smoke * 1020.0 + 0.5) as u64).min(a_q);
+                    let g_q = ((col.1 * a_smoke * 1020.0 + 0.5) as u64).min(a_q);
+                    let b_q = ((col.2 * a_smoke * 1020.0 + 0.5) as u64).min(a_q);
+                    l1_u64[row_start + gx] = (a_q << 48) | (r_q << 32) | (g_q << 16) | b_q;
+                } else {
+                    l1_u64[row_start + gx] = 0;
+                }
+                let dot_edge = smoothstep(reach_dp * 0.78, 0.0, d_edge) * (0.60 + 0.40 * corner_boost * 4.0);
+                dot_grid[row_start + gx] = [t_smoke, dot_edge.clamp(0.0, 1.0)];
             };
+
             if full_row {
-                merge_span(&cache.l1, &cache.l2, &mut cache.l1_u64, 0, gw);
+                for gx in 0..gw {
+                    eval_cell(gx, &mut cache.dot_grid, &mut cache.l1_u64);
+                }
             } else {
-                merge_span(&cache.l1, &cache.l2, &mut cache.l1_u64, 0, bx_m);
-                merge_span(&cache.l1, &cache.l2, &mut cache.l1_u64, gw - bx_m, gw);
+                for gx in 0..bx_m {
+                    eval_cell(gx, &mut cache.dot_grid, &mut cache.l1_u64);
+                }
+                for gx in (gw - bx_m)..gw {
+                    eval_cell(gx, &mut cache.dot_grid, &mut cache.l1_u64);
+                }
             }
         }
 
@@ -3002,7 +3776,11 @@ unsafe fn paint_halo_with_time(bits: *mut u8, sw: i32, sh: i32, level: f32, raw_
             .map(|r| (r.0 as usize).min(gw.saturating_sub(2)))
             .unwrap_or(0);
         let l1_u64 = &cache.l1_u64;
+        let dot_grid = &cache.dot_grid;
         let w_lut = &cache.w_lut;
+        let dot_x_cell = &cache.dot_x_cell;
+        let spacing_px = cache.dot_spacing_px.max(4);
+        let dot_px = cache.dot_size_px.max(1);
         let full_runs = &cache.full_runs;
         let left_runs = &cache.left_runs;
         let right_runs = &cache.right_runs;
@@ -3052,6 +3830,45 @@ unsafe fn paint_halo_with_time(bits: *mut u8, sw: i32, sh: i32, level: f32, raw_
                     let x = (sum >> 8) & 0x00FF_00FF_00FF_00FF;
                     let lo = x | (x >> 8);
                     *row_ptr.add(px) = ((lo & 0xFFFF) | ((lo >> 16) & 0xFFFF_0000)) as u32;
+                }
+            }
+
+            // 2. 纯整型定点叠加微点阵（仅命中点阵行 ~25% 且仅命中 dot_x_cell 列，零逐像素浮点转换）
+            if (py % spacing_px) < dot_px {
+                let cell_y = (py / spacing_px) as i32;
+                let dot_row = &dot_grid[gy0 * gw..(gy0 + 1) * gw];
+                for &(gx, px0, px1) in runs {
+                    let [t_smoke, dot_edge] = *dot_row.get_unchecked(gx as usize);
+                    if dot_edge <= 0.01 || t_smoke <= 0.24 {
+                        continue;
+                    }
+                    let a_soft = smoothstep(0.24, 0.78, t_smoke) * dot_edge * 0.28 * eff_opacity;
+                    let da_soft = (a_soft * 255.0 + 0.5) as u32;
+                    if da_soft == 0 {
+                        continue;
+                    }
+                    let da_spark = ((a_soft.max(dot_edge * 0.56 * eff_opacity)).clamp(0.0, 0.88) * 255.0 + 0.5) as u32;
+                    for px in (px0 as usize)..(px1 as usize) {
+                        let cell_x = *dot_x_cell.get_unchecked(px);
+                        if cell_x < 0 {
+                            continue;
+                        }
+                        let spark = t_smoke > 0.60
+                            && hash2i(cell_x + 17, cell_y + 31) < (t_smoke - 0.55) * 0.85;
+                        let da = if spark { da_spark } else { da_soft };
+                        let (dr, dg, db) = if spark { (240, 252, 255) } else { dot_rgb_soft };
+                        let inv_da = 255 - da;
+                        let p = (row_ptr.add(px)) as *mut u8;
+                        let b0 = *p as u32;
+                        let g0 = *p.add(1) as u32;
+                        let r0 = *p.add(2) as u32;
+                        let a0 = *p.add(3) as u32;
+                        let a_out = (da + ((a0 * inv_da + 127) / 255)).min(255);
+                        *p = (((db * da + b0 * inv_da + 127) / 255).min(a_out)) as u8;
+                        *p.add(1) = (((dg * da + g0 * inv_da + 127) / 255).min(a_out)) as u8;
+                        *p.add(2) = (((dr * da + r0 * inv_da + 127) / 255).min(a_out)) as u8;
+                        *p.add(3) = a_out as u8;
+                    }
                 }
             }
         };
@@ -3506,8 +4323,18 @@ mod tests {
                 }
             }
         }
-        assert!(max_edge_a > 60, "顶部光晕太暗: a={max_edge_a}");
+        assert!(max_edge_a > 60, "顶部烟雾光晕太暗: a={max_edge_a}");
         assert!(edge_blue_gt_red, "默认电光蓝应该蓝通道大于红通道");
+
+        // verify organic FBM smoke contrast along top edge (not a flat uniform gradient)
+        let mut row_min = 255u8;
+        let mut row_max = 0u8;
+        for x in 100..(sw - 100) {
+            let a = buf[((14 * sw + x) * 4 + 3) as usize];
+            row_min = row_min.min(a);
+            row_max = row_max.max(a);
+        }
+        assert!(row_max.saturating_sub(row_min) > 25, "烟雾应具有明显明暗云团起伏: min={row_min}, max={row_max}");
 
         // center must be completely untouched
         let c_off = (((sh / 2) * sw + (sw / 2)) * 4) as usize;
@@ -3519,6 +4346,324 @@ mod tests {
             paint_halo_with_time(zero_buf.as_mut_ptr(), sw, sh, 0.0, 1.5);
         }
         assert!(zero_buf.iter().all(|&v| v == 0));
+    }
+
+    #[test]
+    fn halo_new_palettes_and_spread_presets_render_distinctly() {
+        let (sw, sh) = (640i32, 400i32);
+        let mut cyber = vec![0u8; (sw * sh * 4) as usize];
+        set_halo_tint(HaloTint::Cyberpunk);
+        let mut cfg = GLOW_CONFIG;
+        cfg.blur_radius = 28.0;
+        cfg.peak_thickness = 20.0;
+        cfg.valley_thickness = 8.0;
+        set_halo_config(cfg);
+        unsafe {
+            paint_halo_with_time(cyber.as_mut_ptr(), sw, sh, 1.0, 1.5);
+        }
+        // 赛博霓虹应在边缘呈现出高饱和品红/青色像素，且不能发黑或全零
+        let non_zero_compact = cyber.chunks_exact(4).filter(|p| p[3] > 12).count();
+        assert!(non_zero_compact > 2000, "赛博霓虹渲染面积过小: {non_zero_compact}");
+
+        let mut wide = vec![0u8; (sw * sh * 4) as usize];
+        set_halo_tint(HaloTint::Sunset);
+        cfg.blur_radius = 86.0;
+        cfg.peak_thickness = 54.0;
+        cfg.valley_thickness = 20.0;
+        set_halo_config(cfg);
+        unsafe {
+            paint_halo_with_time(wide.as_mut_ptr(), sw, sh, 1.0, 1.5);
+        }
+        let non_zero_wide = wide.chunks_exact(4).filter(|p| p[3] > 12).count();
+        assert!(
+            non_zero_wide > non_zero_compact,
+            "宽广范围({non_zero_wide})应显著大于紧凑范围({non_zero_compact})"
+        );
+        // 恢复默认，避免污染同进程其他测试
+        set_halo_tint(HaloTint::Blue);
+        set_halo_config(GLOW_CONFIG);
+    }
+
+    #[test]
+    fn halo_spread_transitions_never_leave_inner_border_line() {
+        // 回归：切换 紧凑 ↔ 标准 ↔ 宽广 或不同分辨率时，l1_u64 不可残留旧帧亮边导致内侧出现竖线
+        let mut wide = GLOW_CONFIG;
+        wide.blur_radius = 86.0;
+        wide.peak_thickness = 54.0;
+        wide.valley_thickness = 20.0;
+        wide.opacity = 0.98;
+        let mut compact = GLOW_CONFIG;
+        compact.blur_radius = 28.0;
+        compact.peak_thickness = 20.0;
+        compact.valley_thickness = 8.0;
+        for &(sw, sh, s) in &[
+            (1920i32, 1080i32, 1.0f32),
+            (2560i32, 1440i32, 1.25f32),
+            (2560i32, 1600i32, 1.50f32),
+            (1440i32, 1088i32, 1.25f32),
+        ] {
+            let mut buf = vec![0u8; (sw * sh * 4) as usize];
+            set_halo_tint(HaloTint::Cyberpunk);
+            for &(cfg, t) in &[(GLOW_CONFIG, 1.0), (wide, 1.2), (compact, 1.4), (GLOW_CONFIG, 1.6), (wide, 1.8)] {
+                set_halo_config(cfg);
+                buf.fill(0);
+                unsafe { paint_halo_with_time_cfg(buf.as_mut_ptr(), sw, sh, 1.0, t, &cfg, s); }
+                let reach = halo_reach_px_cfg(&cfg, sw, sh, s);
+                let py = sh / 2;
+                for px in (sw - reach - 12).max(0)..(sw - reach + 4).min(sw) {
+                    let a = buf[((py * sw + px) * 4 + 3) as usize];
+                    assert!(
+                        a <= 2,
+                        "内边界出现亮线残留: sw={sw} s={s} reach={reach} px={px} (offset={}) alpha={a}",
+                        px - (sw - reach)
+                    );
+                }
+                for px in (reach - 4).max(0)..(reach + 12).min(sw) {
+                    let a = buf[((py * sw + px) * 4 + 3) as usize];
+                    assert!(a <= 2, "左侧内边界出现亮线残留: sw={sw} s={s} reach={reach} px={px} alpha={a}");
+                }
+                let px_mid = sw / 2;
+                for y in (reach - 4).max(0)..(reach + 12).min(sh) {
+                    let a = buf[((y * sw + px_mid) * 4 + 3) as usize];
+                    assert!(a <= 2, "顶部内边界出现亮线残留: sw={sw} s={s} reach={reach} py={y} alpha={a}");
+                }
+            }
+        }
+        set_halo_tint(HaloTint::Blue);
+        set_halo_config(GLOW_CONFIG);
+    }
+    #[test]
+    fn orb_silk_wave_naked_premultiplied_and_palette_sensitive() {
+        let (sw, sh) = (400i32, 160i32);
+        let panel = Rect { left: 100, top: 50, right: 296, bottom: 102 };
+        let mut buf = vec![0u8; (sw * sh * 4) as usize];
+        unsafe {
+            paint_orb_silk_wave_at(
+                buf.as_mut_ptr(),
+                sw,
+                sh,
+                &panel,
+                1.0,
+                0.75,
+                0.70,
+                0.78,
+                0.72,
+                1.2,
+                HaloTint::Cyberpunk,
+                1.0,
+            );
+        }
+        let mut bright_px = 0usize;
+        for y in 0..sh {
+            for x in 0..sw {
+                let off = ((y * sw + x) * 4) as usize;
+                let (b, g, r, a) = (buf[off], buf[off + 1], buf[off + 2], buf[off + 3]);
+                assert!(b <= a && g <= a && r <= a, "预乘 alpha 越界 ({x},{y}): [{b},{g},{r},{a}]");
+                let inside = x >= panel.left && x < panel.right && y >= panel.top && y < panel.bottom;
+                if !inside {
+                    assert_eq!((b, g, r, a), (0, 0, 0, 0), "不应画到 panel 之外");
+                }
+                if a > 80 {
+                    bright_px += 1;
+                }
+            }
+        }
+        assert!(bright_px > 200, "说话时应画出清晰弦波: bright_px={bright_px}");
+        // 顶部与左右边界不能有胶囊框线（border-free 验收）
+        for x in panel.left..panel.right {
+            let top_a = buf[((panel.top * sw + x) * 4 + 3) as usize];
+            assert!(top_a <= 2, "顶部不应有胶囊边框: x={x} a={top_a}");
+        }
+        let left_mid_a = buf[(((panel.top + 26) * sw + panel.left) * 4 + 3) as usize];
+        assert!(left_mid_a <= 2, "左侧不应有胶囊边框: a={left_mid_a}");
+
+        // orb_alpha == 0.0（不说话默认消失）必须全零
+        let mut zero_buf = vec![0u8; (sw * sh * 4) as usize];
+        unsafe {
+            paint_orb_silk_wave_at(
+                zero_buf.as_mut_ptr(),
+                sw,
+                sh,
+                &panel,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                1.2,
+                HaloTint::Cyberpunk,
+                1.0,
+            );
+        }
+        assert!(zero_buf.iter().all(|&v| v == 0));
+
+        // 换配色只改波的颜色：翡翠绿应该绿通道显著高于赛博霓虹
+        let mut emerald_buf = vec![0u8; (sw * sh * 4) as usize];
+        unsafe {
+            paint_orb_silk_wave_at(
+                emerald_buf.as_mut_ptr(),
+                sw,
+                sh,
+                &panel,
+                1.0,
+                0.75,
+                0.70,
+                0.78,
+                0.72,
+                1.2,
+                HaloTint::Emerald,
+                1.0,
+            );
+        }
+        let sum_g_em: u64 = emerald_buf.chunks_exact(4).map(|p| p[1] as u64).sum();
+        let sum_r_em: u64 = emerald_buf.chunks_exact(4).map(|p| p[2] as u64).sum();
+        assert!(sum_g_em > sum_r_em, "翡翠幽光波应绿大于红: g={sum_g_em} r={sum_r_em}");
+    }
+
+    #[test]
+    fn orb_pos_set_and_reset_dirty_roundtrip() {
+        let _ = take_orb_pos_dirty();
+        set_orb_pos(Some((320, 900)));
+        assert_eq!(orb_pos(), Some((320, 900)));
+        reset_orb_pos();
+        assert_eq!(orb_pos(), None);
+        assert_eq!(take_orb_pos_dirty(), Some(None));
+        assert_eq!(take_orb_pos_dirty(), None);
+    }
+
+    #[test]
+    fn orb_adaptive_voice_gate_handles_quiet_mic_and_rejects_floor() {
+        let mut s = State {
+            mode: Mode::Orb,
+            visible: true,
+            orb_noise_floor: 0.0035,
+            orb_peak_agc: 0.075,
+            ..State::default()
+        };
+        // 实机底噪 RMS*6 ≈ 0.0012：不得误触发声波出现
+        for _ in 0..10 {
+            push_level_into(&mut s, 0.0012);
+        }
+        assert!(s.orb_last_voice.is_none(), "底噪不应触发声波淡入");
+        // 实机低增益麦说话 RMS*6 ≈ 0.025（低于旧固定门限 0.055）：应立刻唤醒且归一化高度充沛
+        push_level_into(&mut s, 0.025);
+        assert!(s.orb_last_voice.is_some(), "真实低增益说话帧(0.025)必须唤醒声波");
+        assert!(
+            s.orb_level_norm > 0.35,
+            "AGC 归一化应让柔和语音也有明显起伏: norm={}",
+            s.orb_level_norm
+        );
+    }
+    #[test]
+    fn orb_size_and_ring_size_presets_match_spec() {
+        assert!(orb_dims(IndicatorSize::Small).0 < orb_dims(IndicatorSize::Medium).0);
+        assert!(orb_dims(IndicatorSize::Medium).0 < orb_dims(IndicatorSize::Large).0);
+        assert!(orb_dims(IndicatorSize::Medium).0 <= 160, "默认声波应比旧版更小巧");
+        assert!(ring_dims(IndicatorSize::Small).0 < ring_dims(IndicatorSize::Medium).0);
+        assert!(ring_dims(IndicatorSize::Medium).0 < ring_dims(IndicatorSize::Large).0);
+        assert_eq!(IndicatorSize::from_conf("small"), IndicatorSize::Small);
+        assert_eq!(IndicatorSize::from_conf("large"), IndicatorSize::Large);
+        assert_eq!(IndicatorSize::from_conf("anything"), IndicatorSize::Medium);
+    }
+
+    #[test]
+    fn orb_and_ring_stay_visible_while_hotkey_held_even_when_silent() {
+        let now = std::time::Instant::now();
+        for mode in [Mode::Orb, Mode::Ring] {
+            let mut s = State {
+                mode,
+                visible: true,
+                orb_holding: true,
+                orb_fading: false,
+                orb_noise_floor: 0.0035,
+                orb_peak_agc: 0.075,
+                ..State::default()
+            };
+            // 没有任何声音输入，仅按着快捷键推进多帧：必须淡入到可见且保持 target=1.0
+            for i in 0..25 {
+                let (a, tgt, done) = tick_indicator_state(&mut s, 16.0, i as f32 * 0.016, false, now);
+                assert_eq!(tgt, 1.0, "{mode:?} 按住快捷键即使静音也应保持 target_alpha=1.0");
+                assert!(!done);
+                if i == 24 {
+                    assert!(a > 0.9, "{mode:?} 按住后应平滑淡入接近 1.0: alpha={a}");
+                }
+            }
+            assert!(s.orb_env > 0.06, "{mode:?} 按住时应维持柔和活体呼吸底噪包络: {}", s.orb_env);
+            // 松开快捷键（fade_orb/fade_ring）：应切换为淡出并在结束后归零隐藏
+            s.orb_holding = false;
+            s.orb_fading = true;
+            for _ in 0..80 {
+                let _ = tick_indicator_state(&mut s, 20.0, 1.0, false, now);
+            }
+            assert_eq!(s.orb_alpha, 0.0, "{mode:?} 松开快捷键后必须淡出归零");
+            assert!(!s.visible, "{mode:?} 淡出完成后必须隐藏");
+        }
+    }
+
+    #[test]
+    fn ring_white_luminous_loop_has_transparent_center_and_premultiplied_alpha() {
+        let (sw, sh) = (120i32, 120i32);
+        let panel = Rect { left: 31, top: 31, right: 89, bottom: 89 }; // 58x58 中号白环
+        let mut buf = vec![0u8; (sw * sh * 4) as usize];
+        unsafe {
+            paint_orb_white_ring_at(buf.as_mut_ptr(), sw, sh, &panel, 1.0, 0.45, 1.1, 1.0);
+        }
+        // 中心像素（60, 60）：视觉完全透明（仅允许 <=1 的热区命中保底 alpha，RGB=0）
+        let c_off = ((60 * sw + 60) * 4) as usize;
+        assert_eq!(
+            (buf[c_off], buf[c_off + 1], buf[c_off + 2]),
+            (0, 0, 0),
+            "白环中心必须无任何填充色"
+        );
+        assert!(buf[c_off + 3] <= 1, "白环中心必须完全透明: a={}", buf[c_off + 3]);
+
+        let mut bright_white_px = 0usize;
+        for y in 0..sh {
+            for x in 0..sw {
+                let off = ((y * sw + x) * 4) as usize;
+                let (b, g, r, a) = (buf[off], buf[off + 1], buf[off + 2], buf[off + 3]);
+                assert!(b <= a && g <= a && r <= a, "预乘 alpha 越界 ({x},{y}): [{b},{g},{r},{a}]");
+                let inside = x >= panel.left && x < panel.right && y >= panel.top && y < panel.bottom;
+                if !inside {
+                    assert_eq!((b, g, r, a), (0, 0, 0, 0), "不应画到 panel 之外");
+                }
+                if a > 120 {
+                    assert_eq!((b, g, r), (b, b, b), "白环应该是纯粹白色");
+                    bright_white_px += 1;
+                }
+            }
+        }
+        assert!(bright_white_px > 60, "白环应该画出清晰连续的发光白线: bright={bright_white_px}");
+    }
+
+    #[test]
+    fn ring_sensitivity_presets_scale_quiet_speech_and_reject_floor() {
+        let mut norms = [0.0f32; 3];
+        for (idx, sens) in [RingSens::Low, RingSens::Medium, RingSens::High].iter().enumerate() {
+            let mut s = State {
+                mode: Mode::Ring,
+                visible: true,
+                orb_holding: true,
+                orb_noise_floor: 0.0025,
+                orb_peak_agc: 0.0,
+                ..State::default()
+            };
+            for _ in 0..8 {
+                push_level_with_sens(&mut s, 0.0012, *sens);
+            }
+            assert!(s.orb_last_voice.is_none(), "{sens:?} 不应把底噪 0.0012 误判为说话");
+            push_level_with_sens(&mut s, 0.015, *sens);
+            assert!(s.orb_last_voice.is_some(), "{sens:?} 柔和说话 0.015 应触发");
+            norms[idx] = s.orb_level_norm;
+        }
+        assert!(
+            norms[0] < norms[1] && norms[1] < norms[2],
+            "白环灵敏度应严格递增: low={} < med={} < high={}",
+            norms[0],
+            norms[1],
+            norms[2]
+        );
+        assert!(norms[1] >= 0.45, "中档白环在柔和说话 0.015 下应有充沛起伏: med={}", norms[1]);
     }
 
     /// 🔴 实测:被裁剪的 `Clear` 会不会动到画布上**没被清到**的地方。

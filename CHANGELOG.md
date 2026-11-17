@@ -7,12 +7,32 @@
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-18
+
 ### Added
-- **悬浮显示新增「流光光晕」（`overlay_mode = halo`）**：双层高斯漫射沿屏幕四边波浪式柔和流动（Ego 同款柔光），无硬边、贴边圆滑过渡、附 1.5dp 贴边高光线。
-  - 配色支持 5 档（`halo_tint`）：`blue`（电光蓝，默认）/ `cyan`（天青水色）/ `violet`（蓝紫极光）/ `siri`（Siri 绚烂）/ `rainbow`（流光彩虹），托盘「悬浮显示 → 流光光晕配色」可实时切换并写回 `ouuutput.conf`。
-  - 形态参数按 `GLOW_CONFIG` 默认值提供，并支持配置项 / 命令行覆写：`halo_blur`（52）/ `halo_speed`（0.50）/ `halo_peak`（33）/ `halo_valley`（12）/ `halo_dynamics`（0.80）/ `halo_opacity`（0.80）/ `halo_rim`（0.20）。
-  - 渲染直写整屏 32bpp premultiplied BGRA DIB，零 per-frame D2D/GDI 对象分配，并采用 5dp 粗网格双层高斯 + 10-bit SWAR 双线性上采样；仅覆盖 `content_rects(Mode::Halo)` 四条贴边脏带，屏中区域保持全透明不重绘。
-  - 回归与演示：`ouuutput overlay-demo --mode halo --tint siri` 支持预览；新增 `tools/test_halo_mode.py` 验证配置输出及托盘切换持久化。
+
+- **悬浮显示新增「流光光晕」(`overlay_mode = halo`,现为默认)**:双层高斯漫射沿屏幕四边波浪式柔和流动(Ego 同款柔光),无硬边、贴边圆滑过渡、附 1.5dp 贴边高光线。
+  - 配色扩到 8 档(`halo_tint`):`blue`(电光蓝,默认)/ `cyan`(天青水色)/ `violet`(蓝紫极光)/ `siri`(Siri 绚烂)/ `rainbow`(流光彩虹)/ `cyberpunk`(赛博霓虹)/ `emerald`(翡翠幽光)/ `sunset`(落日熔金);托盘「流光」卡片用色点直接点选,实时生效并写回 `ouuutput.conf`。
+  - 形态参数按 `GLOW_CONFIG` 默认值提供,并支持配置项 / 命令行覆写:`halo_blur`(52)/ `halo_speed`(0.50)/ `halo_peak`(33)/ `halo_valley`(12)/ `halo_dynamics`(0.80)/ `halo_opacity`(0.80)/ `halo_rim`(0.20);托盘另有「范围 / 流速 / 浓淡 / 帧率(60/30Hz)」四枚实时胶囊,不必手改配置。
+  - 渲染直写整屏 32bpp premultiplied BGRA DIB,零 per-frame D2D/GDI 对象分配,并采用 5dp 粗网格双层高斯 + 10-bit SWAR 双线性上采样;仅覆盖 `content_rects(Mode::Halo)` 四条贴边脏带,屏中区域保持全透明不重绘。
+  - 回归与演示:`ouuutput overlay-demo --mode halo --tint siri` 支持预览;`tools/test_halo_mode.py` 覆盖 8 配色与托盘切换持久化。
+- **悬浮显示新增「纯白流体圆环」(`overlay_mode = ring`)**:透明中心 + 纯白发光流体环,零反色、零填充,只有环形轮廓随音量起伏。
+  - 三档大小(`ring_size = small|medium|large` → 42 / 58 / 82 dp),托盘「白环」卡片直接点选,即时预览并写回配置。
+  - 三档灵敏度(`ring_sens = low|medium|high`,默认 `medium`):动态增益 1.0× / 2.2× / 3.4×,静音门限 0.0085 / 0.0072 / 0.0065,配自适应 AGC;低档给高增益外接麦,高档给轻声细语。
+  - 流体形变与呼吸幅度按实测反馈加大(基准半径 `min_dim × 0.27`,径向振幅 `0.038 + 0.22 × env`,呼吸 `0.025 + 0.16 × env`),时间常数 55ms 上升 / 185ms 回落 —— 正常语速的音节起伏不会再被吞掉。
+  - 可见性严格跟随热键按住 / 松开,不再因音量变小自动隐藏;音量只驱动形变幅度。
+- **托盘菜单重做为统一浮窗面板(`OuuutputTrayMenuWnd`)**:自绘 D2D Fluent 面板替代原生 Win32 菜单,顶部是「关闭 / 声波 / 白环 / 流光」四段模式条,点哪段就展开哪段的实时调参卡片。
+  - 「声波」卡片:三档大小(`orb_size = small|medium|large` → 112×30 / 146×38 / 190×48 dp)+ 配色 + 「归位」。
+  - 「白环」卡片:三档大小 + 三档灵敏度 + 拖动提示。
+  - 「流光」卡片:8 色点 + 范围 / 流速 / 浓淡 / 帧率胶囊。
+  - 保留热键选择网格、标点转空格、英文连写、上下文偏置、前面自动加空格、英文小写修复、开机自启、静音断句、释放卡住的键、显示日志窗口、重启输入法、退出。
+  - D2D 画布 / 笔刷创建的静默失败补上 `eprintln!` 日志,不再无声吞错。
+- 新增回归:`tools/test_tray_popover.py`(私有桌面真窗口点击、模式切换、调参胶囊、Esc 收起)、`tools/test_orb_wave.py`(声波 / 白环大小档、灵敏度档、归位、淡出后恢复点击穿透)。
+
+### Changed
+
+- **默认悬浮显示改为「流光光晕」(`halo`)**;`bar`(细条)与 `edge`(屏幕边缘光)的入口注释停用,现存模式为 `off | orb | halo | ring`。老配置写 `bar` / `edge` 时按 `halo` 处理。
+- 白环与声波的刷新节奏与音量响应重标定:安静时保持静止基线,说话时振幅清晰可辨,松键后平滑淡出。
 
 ## [0.3.2] - 2026-11-10
 
@@ -67,8 +87,6 @@
     **当场执行**(不排队进 `TrayToggle`)——因为新实例的接管逻辑会给**本进程**发托盘退出命令(`request_exit_of`),
     而处理它要求托盘线程的消息循环还在跑;spawn 失败会弹托盘气泡,不静默。
   - 起进程用 `CREATE_NO_WINDOW`,不弹第二个黑窗口。
-
-## [Unreleased]
 
 ## [0.3.0] - 2026-11-08
 

@@ -1,6 +1,6 @@
 # ouuutput 输入法 —— 低延迟、全本地的语音输入法
 
-**Windows 10/11 x64** · **MIT License** · **Rust 主体 + Python ASR 子进程** · 版本 `0.3.2`
+**Windows 10/11 x64** · **MIT License** · **Rust 主体 + Python ASR 子进程** · 版本 `0.4.0`
 
 按住热键说话，松开上屏；文字在说话过程中逐字出现，自带标点、阿拉伯数字归一化和热词。
 识别与标点全部在本机完成，**运行期不联网**。
@@ -18,22 +18,22 @@
 
 ---
 
-## 0. 当前状态（2026-11-10）
+## 0. 当前状态(2026-11-18)
 
 | 项 | 值 |
 |---|---|
-| 版本 | `0.3.2` |
-| 发布 | [GitHub Release v0.3.2](https://github.com/nakamotosai/ouuutput/releases/tag/v0.3.2) · `dist\ouuutput-0.3.2-win64.zip` |
-| 源码 | `F:\projects\ouuutput` · `main` = `814bcae` · tag `v0.3.2` |
+| 版本 | `0.4.0` |
+| 发布 | [GitHub Release v0.4.0](https://github.com/nakamotosai/ouuutput/releases/tag/v0.4.0) · `dist\ouuutput-0.4.0-win64.zip` |
+| 源码 | `F:\projects\ouuutput` · tag `v0.4.0` |
 | 接手 | [HANDOFF.md](HANDOFF.md) · [PLAN-NEXT.md](PLAN-NEXT.md) · [CHANGELOG.md](CHANGELOG.md) |
 
-本轮完成：① 修掉**小数点两边被插空格**（CT-Transformer 会给夹在 ASCII 字母数字之间的 `.`
-两边各插一个空格，`99.99` → `99 . 99`；修在 `tools/polish.py` + `tools/asr_sidecar.py`）；
-② 上一版修掉的流式标点「先上屏、下一帧又撤销」与托盘右键「重启输入法（读最新版）」保持。
+本轮完成:1 悬浮显示新增**流光光晕**(`halo`,现为默认)与**纯白流体圆环**(`ring`),
+后者带三档大小 + 三档灵敏度;2 托盘菜单重做为统一浮窗面板,分「关闭 / 声波 / 白环 / 流光」
+四段,切模式即预览、卡片内直接调参并写回配置;3 声波新增三档大小与「归位」,流光配色扩到 8 档。
 
-**唯一 next**：评估**定稿阶段**标点位置的模型上限。现役 `sherpa-onnx` 只发布一个中文标点模型，
-190 句真实语料抽查 189/190 合理，唯一失误是 `你去实际，看它的真实报错记录`
-（逗号把「实际」和「看」切开）—— 属模型断句精度，不是流式 bug，不能靠加规则修。
+**唯一 next**:评估**定稿阶段**标点位置的模型上限。现役 `sherpa-onnx` 只发布一个中文标点模型,
+190 句真实语料抽查 189/190 合理,唯一失误是 `你去实际,看它的真实报错记录`
+(逗号把「实际」和「看」切开)—— 属模型断句精度,不是流式 bug,不能靠加规则修。
 
 ---
 
@@ -44,7 +44,7 @@
 | 中英混说流式识别（逐字上屏） | ✅ 默认开 |
 | 自动标点（，。？！） | ✅ 默认开，中英通用 |
 | 阿拉伯数字归一化（「三十四个」→「34个」） | ✅ 默认开 |
-| 悬浮显示（4 选 1，默认屏幕边缘光） | ✅ 见 §4 |
+| 悬浮显示（4 选 1，默认流光光晕） | ✅ 见 §4 |
 | 读号码 / 验证码（整句数字逐位转写：`九零三七二一` → `903721`，两端不加空格、不补标点） | ✅ 默认开 |
 | 型号 / 版本 / 域名（`MP 四` → `MP4`、`AGENTS 点 M D` → `AGENTS.md`、`SAAAI 点 COM` → `SAAAI.com`） | ✅ 默认开，见 §10 的边界 |
 | 静音计时断句（RMS 能量阈值，非语义 VAD） | ✅ 默认 15 秒，托盘可选 5/10/15/30/不断句 |
@@ -137,7 +137,8 @@ copy hotwords.example.txt hotwords.txt    # 可选
 - 英文连写（`A P I` → `API`）
 - 上下文偏置 / 显示偏置提示
 - 前面自动加空格
-- 悬浮显示：不显示 / 细条 / 悬浮球 / 屏幕边缘光（**4 选 1**，默认屏幕边缘光），边缘光颜色 5 选 1
+- 悬浮显示：**关闭 / 声波 / 白环 / 流光**（4 选 1，默认流光），点哪段展开哪段的调参卡片：
+  声波三档大小 + 配色 + 归位；白环三档大小 + 三档灵敏度；流光 8 配色 + 范围/流速/浓淡/帧率
 - 英文小写修复
 - 开机自启
 - 静音断句：5 / 10 / 15 / 30 秒 / 不断句（**默认 15 秒**）
@@ -147,27 +148,27 @@ copy hotwords.example.txt hotwords.txt    # 可选
 
 ## 4. 悬浮显示
 
-**位置固定**：细条 / 悬浮球在屏幕中下方、任务栏正上方；边缘光沿屏幕四边。
-两者都**不跟随光标**（不挡正在看的插入符）。
+**位置固定**:声波 / 白环在屏幕中下方、任务栏正上方;流光沿屏幕四边。都**不跟随光标**(不挡正在看的插入符)。
 
 | 模式 | 说明 |
 |---|---|
-| 不显示 | 完全不画（文字本来就逐字上屏到光标处） |
-| 细条（`bar`） | 只显示实时文字 |
-| 悬浮球（`orb`） | 录音状态 + 真实音量驱动的波形 |
-| 屏幕边缘光（`edge`，**默认**） | 录音时屏幕四边微亮，松手淡出，不占中央 |
-| 流光光晕（`halo`） | 双层高斯漫射沿四边波浪式柔和流动，贴边无硬边 |
+| 关闭(`off`) | 完全不画(文字本来就逐字上屏到光标处) |
+| 声波(`orb`) | 无框裸流体弦波,三档大小(112×30 / 146×38 / 190×48 dp),随真实音量起伏 |
+| 白环(`ring`) | 透明中心 + 纯白发光流体环,三档大小(42 / 58 / 82 dp)+ 三档灵敏度 |
+| 流光光晕(`halo`,**默认**) | 双层高斯漫射沿四边波浪式柔和流动,贴边无硬边 |
 
-边缘光色 5 选 1：白光（默认）/ 彩虹光 / 暖橙光 / 青蓝光 / 极光（青紫）。
-流光光晕配色 5 选 1：电光蓝（默认）/ 天青水色 / 蓝紫极光 / Siri 绚烂 / 流光彩虹。
-配置写法：`overlay_mode = off|bar|orb|edge|halo`、`edge_tint = white|rainbow|amber|cyan|aurora`、`halo_tint = blue|cyan|violet|siri|rainbow`。
+流光配色 8 选 1:电光蓝(默认)/ 天青水色 / 蓝紫极光 / Siri 绚烂 / 流光彩虹 / 赛博霓虹 / 翡翠幽光 / 落日熔金。
+白环灵敏度 3 选 1:低(1.0× 增益,给高增益外接麦)/ 中(2.2×,默认)/ 高(3.4×,轻声细语)。
+配置写法:`overlay_mode = off|orb|halo|ring`、`orb_size = small|medium|large`、`ring_size = small|medium|large`、`ring_sens = low|medium|high`、`halo_tint = blue|cyan|violet|siri|rainbow|cyberpunk|emerald|sunset`。
+老配置里的 `bar` / `edge` 已停用,按 `halo` 处理。
 
-预览（不用真录音）：
+可见性只跟热键按住/松开走:按下出现、松开淡出,不会因为说话小声自己消失;音量只决定形变幅度。
+
+预览(不用真录音):
 
 ```powershell
-ouuutput overlay-demo --mode bar --seconds 10
 ouuutput overlay-demo --mode orb --seconds 6
-ouuutput overlay-demo --mode edge --tint aurora
+ouuutput overlay-demo --mode ring --seconds 6 --ring-sens high
 ouuutput overlay-demo --mode halo --tint siri
 ```
 
@@ -192,10 +193,14 @@ toggle = false
 
 model_dir = models/sherpa-onnx-x-asr-160ms-streaming-zipformer-transducer-zh-en-int8-2026-06-05
 
-# 悬浮：off / bar / orb / edge / halo；光色：edge_tint / halo_tint
-overlay_mode = edge
-edge_tint = white
+# 悬浮:off / orb / ring / halo;流光配色用 halo_tint
+overlay_mode = halo
 halo_tint = blue
+
+# 声波 / 白环大小:small / medium / large;白环灵敏度:low / medium / high
+orb_size = medium
+ring_size = medium
+ring_sens = medium
 
 # 自动标点 / 数字归一化 / 静音断句秒数（0 = 不断句）/ 推理线程
 punct = true
@@ -205,7 +210,7 @@ threads = 2
 ```
 
 全部可用键：`hotkey` `model_dir` `punct_dir` `hotwords` `punct` `itn` `beam` `toggle` `tray`
-`hide_console` `overlay_mode` `edge_tint` `halo_tint` `halo_blur` `halo_speed` `halo_peak` `halo_valley` `halo_dynamics` `halo_opacity` `halo_rim` `stream` `lazy_mic` `max_backspace` `throttle_ms`
+`hide_console` `overlay_mode` `orb_size` `ring_size` `ring_sens` `orb_pos` `halo_tint` `halo_blur` `halo_speed` `halo_peak` `halo_valley` `halo_dynamics` `halo_opacity` `halo_rim` `stream` `lazy_mic` `max_backspace` `throttle_ms`
 `threads` `device` `rule1` `rule2` `rule3` `punct_mode` `merge_terms` `fix_case` `ctx_bias`
 `ctx_hotwords` `leading_space` `verbose_ctx` `log` `log_dir` `script` `tail_ms`
 `tail_max_ms` `tail_quiet_ms` `tail_pad_ms` `tail_rms`。
@@ -239,8 +244,9 @@ ouuutput probe [--seconds N]                  只看采集节奏 / 抖动 / 丢�
 ouuutput replay in.wav [--dry-run]            把 WAV 走完整流水线（离线验收，不注入）
 ouuutput render "一段文字"                     只跑 ITN + 标点 + 润色
 ouuutput config                               打印当前生效的主要配置
-ouuutput overlay-demo [--mode bar|orb|edge]   预览悬浮显示（默认 bar）
-         [--seconds N] [--tint white|rainbow|amber|cyan|aurora]
+ouuutput overlay-demo [--mode orb|ring|halo]   预览悬浮显示(默认细条)
+         [--seconds N] [--tint blue|cyan|violet|siri|rainbow|cyberpunk|emerald|sunset]
+         [--ring-size small|medium|large] [--ring-sens low|medium|high] [--orb-size small|medium|large]
 ouuutput release-keys                         给所有修饰键补发 keyup（键盘卡住时的救命命令）
 ouuutput run [options]                        常驻：按住热键说话，松开上屏
 ouuutput selftest inject "文字"                只测上屏路径
@@ -270,8 +276,9 @@ ouuutput selftest inject "文字"                只测上屏路径
 | `--max-backspace N` | 流式修正的安全阀（默认 8）：改动超过 N 字时降频重打（250ms 内最多一次） |
 | `--device <NAME>` | 指定麦克风 |
 | `--lazy-mic` / `--warm-mic` | 按需开麦 / 常驻预热（默认预热） |
-| `--overlay-mode off\|bar\|orb\|edge` | 悬浮显示方式（默认 `edge`） |
-| `--edge-tint <COLOR>` | 边缘光颜色 |
+| `--overlay-mode off\|orb\|halo\|ring` | 悬浮显示方式(默认 `halo`) |
+| `--ring-size small\|medium\|large` / `--ring-sens low\|medium\|high` | 白环大小 / 灵敏度 |
+| `--orb-size small\|medium\|large` | 声波大小 |
 | `--tray` / `--no-tray` | 托盘图标（默认开） |
 | `--hide-console` / `--show-console` | 收起控制台（`start.bat` 默认带上它）/ 保留控制台便于调试 |
 | `--log` / `--no-log` / `--log-dir <DIR>` | 会话日志（默认开，写 `logs/`） |

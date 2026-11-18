@@ -7,6 +7,15 @@
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-18
+
+### Fixed
+
+- **便携包不再依赖系统 Python**:`resolve_python()` 现在优先用 exe 旁边的自带 `runtime\python.exe`,再去 PATH / 常见安装位置找。此前只有走 `start.bat`(它会写 `OUUUTPUT_PYTHON`)才自包含,快捷方式或第三方启动器直接调 `ouuutput.exe` 时会抓到本机恰好没装 `sherpa_onnx` 的 Python,sidecar 一 import 就退,表现就是闪退;没装 Python 的机器则直接报「找不到可用的 Python 解释器」(2026-11-18 实测)。
+  - 优先级:`OUUUTPUT_PYTHON` > exe 同目录或其上一级的 `runtime\python.exe` > PATH / 常见安装位置候选。
+  - 验证口径:清空 `PATH`、不设任何环境变量,直接跑包里的 `ouuutput.exe run --hide-console` → 解析到自带 runtime,`ASR 就绪`。
+- **发布 zip 改用标准条目**:`scripts/make-portable.ps1` 不再用 `Compress-Archive`(它写反斜杠分隔符、且丢掉 Unix 目录的 +x 位,`unzip` 在 Linux/macOS 下解出不可遍历的目录),改为手工写条目、统一 `/`。
+
 ## [0.4.0] - 2026-11-18
 
 ### Added

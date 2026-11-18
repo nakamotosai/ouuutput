@@ -249,7 +249,18 @@ Write-Host ("[pack] payload = {0:N1} MB" -f ($RelTotal / 1MB))
 
 New-Item -ItemType Directory -Force (Split-Path -Parent $Zip) | Out-Null
 if (Test-Path $Zip) { Remove-Item -Force $Zip }
-Compress-Archive -Path $Dist -DestinationPath $Zip -Force
+# Do NOT use Compress-Archive or ZipFile.CreateFromDirectory: on Windows they write
+# backslash entry names (and CreateFromDirectory drops the top-level folder), which
+# makes `unzip` on Linux/macOS choke. Build the entries ourselves, '/' separated.
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$ZipArc  = [System.IO.Compression.ZipFile]::Open($Zip, [System.IO.Compression.ZipArchiveMode]::Create)
+$BaseDir = Split-Path -Parent $Dist
+foreach ($f in (Get-ChildItem $Dist -Recurse -File)) {
+    $rel = ($f.FullName.Substring($BaseDir.Length + 1)) -replace '\\', '/'
+    [void][System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+        $ZipArc, $f.FullName, $rel, [System.IO.Compression.CompressionLevel]::Optimal)
+}
+$ZipArc.Dispose()
 $ZipSize = (Get-Item $Zip).Length
 Write-Host ("[pack] zip = {0} ({1:N1} MB)" -f $Zip, ($ZipSize / 1MB))
 Write-Host ("[pack] sha256 = {0}" -f (Get-FileHash $Zip -Algorithm SHA256).Hash.ToLower())

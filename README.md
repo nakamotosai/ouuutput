@@ -1,6 +1,6 @@
 # ouuutput 输入法 —— 低延迟、全本地的语音输入法
 
-**Windows 10/11 x64** · **MIT License** · **Rust 主体 + Python ASR 子进程** · 版本 `0.4.0`
+**Windows 10/11 x64** · **MIT License** · **Rust 主体 + Python ASR 子进程** · 版本 `0.4.1`
 
 按住热键说话，松开上屏；文字在说话过程中逐字出现，自带标点、阿拉伯数字归一化和热词。
 识别与标点全部在本机完成，**运行期不联网**。
@@ -22,14 +22,12 @@
 
 | 项 | 值 |
 |---|---|
-| 版本 | `0.4.0` |
-| 发布 | [GitHub Release v0.4.0](https://github.com/nakamotosai/ouuutput/releases/tag/v0.4.0) · `dist\ouuutput-0.4.0-win64.zip` |
-| 源码 | `F:\projects\ouuutput` · tag `v0.4.0` |
+| 版本 | `0.4.1` |
+| 发布 | [GitHub Release v0.4.1](https://github.com/nakamotosai/ouuutput/releases/tag/v0.4.1) · `dist\ouuutput-0.4.1-win64.zip` |
+| 源码 | `F:\projects\ouuutput` · tag `v0.4.1` |
 | 接手 | [HANDOFF.md](HANDOFF.md) · [PLAN-NEXT.md](PLAN-NEXT.md) · [CHANGELOG.md](CHANGELOG.md) |
 
-本轮完成:1 悬浮显示新增**流光光晕**(`halo`,现为默认)与**纯白流体圆环**(`ring`),
-后者带三档大小 + 三档灵敏度;2 托盘菜单重做为统一浮窗面板,分「关闭 / 声波 / 白环 / 流光」
-四段,切模式即预览、卡片内直接调参并写回配置;3 声波新增三档大小与「归位」,流光配色扩到 8 档。
+本轮完成:1 **便携包不再依赖系统 Python** —— `resolve_python()` 优先认 exe 旁自带的 `runtime\python.exe`,快捷方式或第三方启动器直调 `ouuutput.exe` 也能自包含(此前这条只在 `start.bat` 里成立,系统 Python 若缺 `sherpa_onnx` 就会闪退);2 发布 zip 改用标准正斜杠条目,Linux/macOS 解压不再丢目录权限。
 
 **唯一 next**:评估**定稿阶段**标点位置的模型上限。现役 `sherpa-onnx` 只发布一个中文标点模型,
 190 句真实语料抽查 189/190 合理,唯一失误是 `你去实际,看它的真实报错记录`

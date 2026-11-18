@@ -303,14 +303,33 @@ fn python_candidates() -> Vec<PathBuf> {
 /// 找一个能用的 Python,并**固定成绝对路径**(体检报告 §4.2)。
 ///
 /// 优先级:`OUUUTPUT_PYTHON`(非空则**原样**用它 —— 便携版启动器写进去的就是绝对路径,
-/// 必须尊重)→ 上面那份绝对路径候选表里第一个**真能跑起来**的 →
-/// 都没有就报错。**不再退回裸 `python`**:宁可起不来,也不要悄悄跑一个
+/// 必须尊重)→ **exe 旁边的 `runtime\`(便携包自带)** → 上面那份绝对路径候选表里第一个
+/// **真能跑起来**的 → 都没有就报错。**不再退回裸 `python`**:宁可起不来,也不要悄悄跑一个
 /// 可能来自当前目录的解释器。
+///
+/// 自带运行时排在候选表之前是刻意的:绿色包的承诺是「别人电脑上不用装任何东西」。
+/// 这条只写在 `start.bat` 里是不够的 —— 快捷方式/第三方启动器直接双击 exe 时
+/// 没人会替它设 `OUUUTPUT_PYTHON`,它就会去 PATH 上抓一个恰好没装 `sherpa_onnx`
+/// 的 Python(2026-11-18 就这样闪退过一次)。
 fn resolve_python() -> Result<String> {
     if let Ok(p) = std::env::var("OUUUTPUT_PYTHON") {
         let p = p.trim();
         if !p.is_empty() {
             return Ok(p.to_string());
+        }
+    }
+    // 便携包自带运行时:<exe目录>\runtime\ ,或上一级(打包时 exe 与 runtime 平级)。
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let mut bundled: Vec<PathBuf> = vec![dir.join("runtime").join(PY_NAMES[0])];
+            if let Some(up) = dir.parent() {
+                bundled.push(up.join("runtime").join(PY_NAMES[0]));
+            }
+            for c in bundled {
+                if c.is_file() && python_works(&c) {
+                    return Ok(c.display().to_string());
+                }
+            }
         }
     }
     let cands = python_candidates();

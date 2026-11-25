@@ -59,10 +59,13 @@ build.bat build --release
 ```
 crates/ouuutput-core/   钩子、注入、文本整形、光标上下文、托盘、悬浮层（库）
 crates/ouuutput-cli/    `ouuutput` 可执行文件：参数解析、子命令、主循环
+scripts/                构建与正式发版脚本（`make-portable.ps1` 打包、`publish-r2.py` 推 Cloudflare R2、`release.ps1` 一键正式发版并同步官网）
 tools/asr_sidecar.py   Python sidecar：麦克风 → sherpa-onnx 流式识别（stdin/stdout 各一行 JSON）
 tools/*.py             探针/基准/后处理工具（会被 CI 做语法检查）
 tools/*.ps1            真机回归脚本（要麦克风、会注入按键，CI 不跑）
 ```
+
+正式发版统一走 `powershell -ExecutionPolicy Bypass -File scripts\release.ps1`（自动以 `Cargo.toml` 为准单测打包、推送至 Cloudflare R2 `media.ouuut.com` 与 GitHub Release，并同步构建部署 `..\cnjpinput` 官网；已停用 Hugging Face）。
 
 ---
 

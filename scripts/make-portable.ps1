@@ -22,6 +22,7 @@
 param(
     [string]$Version = "",      # empty = derive from Cargo.toml
     [switch]$Overwrite,
+    [switch]$PublishR2,
     # Defaults are Apache-2.0 and match the repo default model_dir.
     [string[]]$AsrModels = @("sherpa-onnx-x-asr-160ms-streaming-zipformer-transducer-zh-en-int8-2026-06-05"),
     [string]$PunctModel = "sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8"
@@ -264,5 +265,12 @@ $ZipArc.Dispose()
 $ZipSize = (Get-Item $Zip).Length
 Write-Host ("[pack] zip = {0} ({1:N1} MB)" -f $Zip, ($ZipSize / 1MB))
 Write-Host ("[pack] sha256 = {0}" -f (Get-FileHash $Zip -Algorithm SHA256).Hash.ToLower())
+if ($PublishR2) {
+    Write-Host "[pack] publishing to Cloudflare R2 via scripts\publish-r2.py"
+    & python (Join-Path $PSScriptRoot "publish-r2.py") --version $Version --file $Zip
+    if ($LASTEXITCODE -ne 0) { throw "publish-r2.py failed ($LASTEXITCODE)" }
+} else {
+    Write-Host "[pack] Next (formal release -> R2 + GitHub + input.ouuut.com): powershell -ExecutionPolicy Bypass -File scripts\release.ps1 -SkipPack"
+}
 Write-Host ""
 Write-Host "[pack] done."

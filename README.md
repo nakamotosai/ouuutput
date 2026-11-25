@@ -18,12 +18,13 @@
 
 ---
 
-## 0. 当前状态(2026-11-18)
+## 0. 当前状态(2026-11-25)
 
 | 项 | 值 |
 |---|---|
 | 版本 | `0.4.1` |
-| 发布 | [GitHub Release v0.4.1](https://github.com/nakamotosai/ouuutput/releases/tag/v0.4.1) · `dist\ouuutput-0.4.1-win64.zip` |
+| 发布 | [Cloudflare R2 直链 v0.4.1](https://media.ouuut.com/ouuutput/releases/v0.4.1/ouuutput-0.4.1-win64.zip) · [GitHub Release v0.4.1](https://github.com/nakamotosai/ouuutput/releases/tag/v0.4.1) · `dist\ouuutput-0.4.1-win64.zip` |
+| 官网 | [https://input.ouuut.com/](https://input.ouuut.com/)（正式发版由 `scripts/release.ps1` 自动推送 R2 并同步官网） |
 | 源码 | `F:\projects\ouuutput` · tag `v0.4.1` |
 | 接手 | [HANDOFF.md](HANDOFF.md) · [PLAN-NEXT.md](PLAN-NEXT.md) · [CHANGELOG.md](CHANGELOG.md) |
 
